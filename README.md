@@ -5,7 +5,7 @@ Source code for **SONATA: Disambiguated manifold alignment of single-cell data**
 Dependencies for SONATA are recorded in *requirements.txt*. We downloaded Manifold aligner SCOT from its [official github](https://github.com/rsinghlab/SCOT).
 
 ## Data
-Datasets could be downloaded 
+Datasets are available at [this link]().
 
 ## Examples
 Jupyter notebooks to replicate the results from the manuscriot are available under folder *examples*:  
