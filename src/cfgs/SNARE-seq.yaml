@@ -1,0 +1,33 @@
+data_path:
+  dataset_url1: "../../data/SNARE-seq/scatac_feat.npy"
+  dataset_url2: "../../data/SNARE-seq/scrna_feat.npy"
+
+  label_url1: "../../data/SNARE-seq/SNAREseq_atac_types.txt"
+  label_url2: "../../data/SNARE-seq/SNAREseq_rna_types.txt"
+
+save_path: "../../results/SNARE-seq"
+
+sonata:
+  norm: "l2" # None/l1/l2/max/zscore
+  pca_k: 2
+
+  kmin: 10
+  kmax: 200
+  kmode: "distance" #distance/connectivity
+  kmetric:  "euclidean" # euclidean/correlation
+
+  sigma: 0.15
+  percnt_thres: 95
+  ambi_thres: 0.1
+  eval_knn: False
+
+scot:
+  normalize: True
+  k: 110
+  e: 0.001
+  metric: "correlation"
+  mode: "connectivity"
+ 
+
+plt:
+  XontoY: False
