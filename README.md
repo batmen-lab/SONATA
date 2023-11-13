@@ -2,10 +2,12 @@
 Source code for **SONATA: Disambiguated manifold alignment of single-cell data**
 
 ## Requirements
-Dependencies for **SONATA** are recorded in *requirements.txt*. We downloaded Manifold aligner **SCOT** from its [official github](https://github.com/rsinghlab/SCOT).
+Dependencies for **SONATA** are recorded in *requirements.txt*.  
+
+For illustration, we downloaded Manifold aligner **SCOT**, a commonly-used manifold alignment method using optimal transport, from its [official github](https://github.com/rsinghlab/SCOT). In principle, SONATA is generalizable to any off-the-shelf manifold alignment methods.
 
 ## Data
-Datasets are available at [this link](https://drive.google.com/drive/folders/1DKDP2eSfWODHiFqmn2GQY4m-sNda5seg?usp=sharing).
+All datasets are available at [this link](https://drive.google.com/drive/folders/1DKDP2eSfWODHiFqmn2GQY4m-sNda5seg?usp=sharing).
 
 ## Examples
 Jupyter notebooks to replicate the results from the manuscript are available under folder *examples*:  
@@ -16,7 +18,7 @@ Jupyter notebooks to replicate the results from the manuscript are available und
 - Real bio datasets: [scGEM.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/scGEM.ipynb), [SNARE-seq.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/SNARE-seq.ipynb)
 
 ## Basic Use
-
+Input for SONATA: *data* in form of numpy arrays/matrices, where the rows correspond to samples and columns correspond to features.
 ```python
 import sonata
 sn = sonata.sonata(kmin=10, sigma=0.1, t=0.1)

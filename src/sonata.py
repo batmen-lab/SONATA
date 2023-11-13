@@ -16,6 +16,29 @@ import ot
 
 
 class sonata(object):
+    """
+    SONATA algorithm for disambiguating manifold alignment of single-cell data
+    https://www.biorxiv.org/content/10.1101/2023.10.05.561049v2
+
+    Input for SONATA: data in form of numpy arrays/matrices, where the rows correspond to samples and columns correspond to features.
+    Basic Use:
+    import sonata
+    sn = sonata.sonata(kmin=10, sigma=0.1, t=0.1)
+    alter_mappings = sn.alter_mapping(data)
+
+    Required parameters
+    - k: Number of neighbors to be used when constructing kNN graphs. Default=10. The number of neighbors k should be suffciently large to connect the corresponding k-NN graph   
+    - sigma: Bandwidth parameter for cell-wise ambiguity (Aij). Default=0.1.
+    - t: A threshold to ascertain the ambiguity status of individual cells before clustering them into groups. Default=0.1, with lower values resulting in stricter ambiguity classification.
+
+    Optional parameters:
+    - kmode: Determine whether to use a connectivity graph (adjacency matrix of 1s/0s based on whether nodes are connected) or a distance graph (adjacency matrix entries weighted by distances between nodes). Default="distance"
+    - kmetric: Sets the metric to use while constructing nearest neighbor graphs. some possible choices are "euclidean", "correlation". Default= "euclidean".
+    - kmax: Maximum value of knn when constructing geodesic distance matrix. Default=200.
+    - percnt_thres: The percentile of the data distribution used in the calculation of the “virtual” cell. Default=95.
+    - eval_knn: Evaluate whether the alternative alignment distorts the data manifold by changing the mutual nearest neighbors of cells. Default=False.    
+    """
+
     def __init__(self, kmin=10, sigma=0.1, t=0.1, kmax=200, kmode="distance", kmetric="euclidean", percnt_thres=95, eval_knn=False) -> None:
 
         self.kmin = kmin
@@ -24,7 +47,6 @@ class sonata(object):
         self.kmetric = kmetric
 
         self.sigma = sigma
-
         self.percnt_thres = percnt_thres
         self.t = t
         self.eval_knn = eval_knn
@@ -34,25 +56,17 @@ class sonata(object):
         self.l1_mat = None
         self.cell_amat = None
         self.group_amats = None
+
         # for plt
         self.ambiguous_links = None
         self.ambiguous_nodes = None
         self.cluster_labels = None
-
         # for elbow methods
         self.K = None
         self.K_yerror = None
         self.K_xstep = None
 
     def alt_mapping(self, data):
-        # # data preprocess
-        # if self.norm:
-        #     data = self.data_normalize(data)
-        #     print('data normalized')
-        # if self.pca_k != 0:
-        #     data = PCA(n_components=self.pca_k).fit(data).fit_transform(data)
-        #     print('data preprocessed by pca')
-
         # cell-wise ambiguity
         self.construct_graph(data)
         self.l1_mat = self.geo_similarity(geo_dist=self.geo_mat)
@@ -63,17 +77,6 @@ class sonata(object):
 
         return self.group_amats
     
-    def data_normalize(self, data):
-        assert (self.norm in ["l1","l2","max", "zscore"]), "Norm argument has to be either one of 'max', 'l1', 'l2' or 'zscore'."
-
-        if self.norm=="zscore":
-            scaler = StandardScaler()
-            norm_data = scaler.fit_transform(data)
-
-        else:
-            norm_data = normalize(data, norm=self.norm, axis=1)
-
-        return norm_data
     
     def construct_graph(self, data):
         """
@@ -282,7 +285,7 @@ class sonata(object):
         x_step = 1/data.shape[0]
 
         # choose the best k by 2nd derivative
-        best_k = np.argmax(second_grad(y_error, step = x_step)) + 2
+        best_k = np.argmax(self.second_grad(y_error, step = x_step)) + 2
 
         self.K = best_k
         self.K_yerror = y_error
@@ -341,20 +344,15 @@ class sonata(object):
             yield map_mat
 
 
+    # second graduate for k elbow
+    def second_grad(self, k_arr, step):
+        # first grad
+        first_grad = (k_arr[1:] - k_arr[:-1])/step 
+        # 2nd grad
+        second_grad = (first_grad[1:] - first_grad[:-1])/(1+first_grad[1:]*first_grad[:-1])
+        second_grad = np.arctan(np.abs(second_grad))
 
-
-# second graduate for k elbow
-def second_grad(k_arr, step):
-    # first grad
-    first_grad = (k_arr[1:] - k_arr[:-1])/step 
-    # print('first_grad = {}\nangles = {}'.format(first_grad, np.degrees(np.arctan(first_grad))))
-
-    # 2nd grad
-    second_grad = (first_grad[1:] - first_grad[:-1])/(1+first_grad[1:]*first_grad[:-1])
-    second_grad = np.arctan(np.abs(second_grad))
-    # print('2nd_grad = {}\ndelta angle = {}'.format(second_grad, np.degrees(second_grad)))
-
-    return second_grad
+        return second_grad
 
 def eval_valid_group_knn(ambiguous_node_groups, unambiguous_nodes, knn):
     knn = knn.tocoo()

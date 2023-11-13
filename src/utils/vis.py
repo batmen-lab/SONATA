@@ -4,8 +4,6 @@ from sklearn.decomposition import PCA
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from sklearn.manifold import TSNE
-import umap
 
 def plt_domain_by_label(data_mat, labels, color, title, save_url='', alpha = 0.5, show=False):
     pca = PCA(n_components=2).fit(data_mat)
