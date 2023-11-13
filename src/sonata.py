@@ -1,4 +1,3 @@
-
 import numpy as np
 
 from sklearn.preprocessing import normalize, StandardScaler
@@ -10,25 +9,25 @@ from scipy.spatial.distance import cdist
 from scipy.interpolate import UnivariateSpline
 from scipy.interpolate import splrep, PPoly
 
+from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
+
 import itertools
 import ot
 
 
 class sonata(object):
-    def __init__(self, args) -> None:
-        self.norm = args.norm
-        self.pca_k = args.pca_k
+    def __init__(self, kmin=10, sigma=0.1, t=0.1, kmax=200, kmode="distance", kmetric="euclidean", percnt_thres=95, eval_knn=False) -> None:
 
-        self.kmin = args.kmin
-        self.kmax = args.kmax
-        self.kmode = args.kmode
-        self.kmetric = args.kmetric
+        self.kmin = kmin
+        self.kmax = kmax
+        self.kmode = kmode
+        self.kmetric = kmetric
 
-        self.sigma = args.sigma
+        self.sigma = sigma
 
-        self.percnt_thres = args.percnt_thres
-        self.ambi_thres = args.ambi_thres
-        self.eval_knn = args.eval_knn
+        self.percnt_thres = percnt_thres
+        self.t = t
+        self.eval_knn = eval_knn
 
         self.geo_mat = None
         self.knn = None
@@ -46,13 +45,13 @@ class sonata(object):
         self.K_xstep = None
 
     def alt_mapping(self, data):
-        # data preprocess
-        if self.norm:
-            data = self.data_normalize(data)
-            print('data normalized')
-        if self.pca_k != 0:
-            data = PCA(n_components=self.pca_k).fit(data).fit_transform(data)
-            print('data preprocessed by pca')
+        # # data preprocess
+        # if self.norm:
+        #     data = self.data_normalize(data)
+        #     print('data normalized')
+        # if self.pca_k != 0:
+        #     data = PCA(n_components=self.pca_k).fit(data).fit_transform(data)
+        #     print('data preprocessed by pca')
 
         # cell-wise ambiguity
         self.construct_graph(data)
@@ -220,7 +219,7 @@ class sonata(object):
     def select_ambiguous_nodes(self):
         cell_amat_copy = self.cell_amat.copy()
         n = cell_amat_copy.shape[0]
-        cell_amat_copy[cell_amat_copy <= self.ambi_thres] = 0
+        cell_amat_copy[cell_amat_copy <= self.t] = 0
         cell_amat_sum_arr = cell_amat_copy.sum(axis=1)
         ambiguous_nodes = np.where(cell_amat_sum_arr > 0)[0]
         return ambiguous_nodes
@@ -230,12 +229,12 @@ class sonata(object):
         using semi-supervised-clustering with cannot link
         code: https://github.com/datamole-ai/active-semi-supervised-clustering
         '''
-        from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
+        
         data_mat_ambiguous = data[ambiguous_nodes, :]
         cell_amat_ambiguous = self.cell_amat[ambiguous_nodes, :][:, ambiguous_nodes]
 
         # uncertainty threshold
-        ambiguous_indices = np.where(cell_amat_ambiguous > self.ambi_thres)
+        ambiguous_indices = np.where(cell_amat_ambiguous > self.t)
         
         # all cell-wise ambiguity
         cannot_links = list(zip(ambiguous_indices[0], ambiguous_indices[1]))

@@ -5,7 +5,7 @@ Source code for **SONATA: Disambiguated manifold alignment of single-cell data**
 Dependencies for **SONATA** are recorded in *requirements.txt*. We downloaded Manifold aligner **SCOT** from its [official github](https://github.com/rsinghlab/SCOT).
 
 ## Data
-Datasets are available at [this link]().
+Datasets are available at [this link](https://drive.google.com/drive/folders/1DKDP2eSfWODHiFqmn2GQY4m-sNda5seg?usp=sharing).
 
 ## Examples
 Jupyter notebooks to replicate the results from the manuscript are available under folder *examples*:  
@@ -18,6 +18,6 @@ Jupyter notebooks to replicate the results from the manuscript are available und
 ## Basic Use
 ```python
 import sonata
-sn = sonata.sonata(args)
+sn = sonata.sonata(kmin=10, sigma=0.1, t=0.1)
 alter_mappings = sn.alter_mapping(data)
 ```
