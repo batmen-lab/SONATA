@@ -1,24 +1,19 @@
 data_path:
-  dataset_url1: "../../data/cross/domain1.txt"
-  dataset_url2: "../../data/cross/domain2.txt"
+  dataset_url1: "../data/cross/domain1.txt"
+  dataset_url2: "../data/cross/domain2.txt"
 
-  label_url1: "../../data/cross/label_domain1.txt"
-  label_url2: "../../data/cross/label_domain2.txt"
-
-save_path: "../../results/cross"
+  label_url1: "../data/cross/label_domain1.txt"
+  label_url2: "../data/cross/label_domain2.txt"
 
 sonata:
-  norm: "" # None/l1/l2/max/zscore
-  pca_k: 0
-
   kmin: 10
+  sigma: 0.1
+  t: 0.1
+
   kmax: 200
   kmode: "distance" #distance/connectivity
   kmetric:  "euclidean" # euclidean/correlation
-
-  sigma: 0.1
   percnt_thres: 95
-  ambi_thres: 0.1
   eval_knn: False
 
 scot:

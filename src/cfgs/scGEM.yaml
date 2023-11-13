@@ -1,33 +1,27 @@
 data_path:
-  dataset_url1: "../../data/scGEM/scGEM_expression.csv"
-  dataset_url2: "../../data/scGEM/scGEM_methylation.csv"
+  dataset_url1: "../data/scGEM/scGEM_expression.csv"
+  dataset_url2: "../data/scGEM/scGEM_methylation.csv"
 
-  label_url1: "../../data/scGEM/scGEM_typeExpression.txt"
-  label_url2: "../../data/scGEM/scGEM_typeMethylation.txt"
-
-save_path: "../../results/scGEM"
+  label_url1: "../data/scGEM/scGEM_typeExpression.txt"
+  label_url2: "../data/scGEM/scGEM_typeMethylation.txt"
 
 sonata:
-  norm: "l2" # None/l1/l2/max/zscore
-  pca_k: 0
-
   kmin: 10
+  sigma: 0.15 
+  t: 0.1
+
   kmax: 200
   kmode: "distance" #distance/connectivity
   kmetric:  "euclidean" # euclidean/correlation
-
-  sigma: 0.15
   percnt_thres: 95
-  ambi_thres: 0.1
   eval_knn: False
 
 scot:
-  normalize: True
+  normalize: False
   k: 25
   e: 0.005
   metric: "correlation"
   mode: "connectivity"
  
-
 plt:
   XontoY: True
