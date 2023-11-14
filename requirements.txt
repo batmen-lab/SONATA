@@ -1,0 +1,7 @@
+numpy
+POT
+scikit-learn
+scipy
+active-semi-supervised-clustering
+matplotlib
+mpl_toolkits
