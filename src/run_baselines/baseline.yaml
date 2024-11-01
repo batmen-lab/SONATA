@@ -1,0 +1,263 @@
+t_branch:
+  data_url1: "domain1.txt"
+  data_url2: "domain2.txt"
+  label_url1: "label_domain1.txt"
+  label_url2: "label_domain2.txt"
+  data_path: "../data/t_branch"
+  save_path: "../results/baselines/t_branch"
+  norm: False
+  sort: False
+  
+  scotv1:
+    k_step: 1
+
+  scotv2:
+    k_step: 1
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 2000
+    epsilon: 0.01
+    log_pd: 100
+  
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-6, 1.0e-6]]
+
+benz:
+  data_url1: "domain1.txt"
+  data_url2: "domain2.txt"
+  label_url1: "label_domain1.txt"
+  label_url2: "label_domain2.txt"
+  data_path: "../data/benz"
+  save_path: "../results/baselines/benz"
+  norm: False
+  sort: False
+
+  scotv1:
+    k_step: 1
+
+  scotv2:
+    k_step: 1
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 2000
+    epsilon: 0.01
+    log_pd: 100  
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-6, 1.0e-6]]
+
+
+cross:
+  data_url1: "domain1.txt"
+  data_url2: "domain2.txt"
+  label_url1: "label_domain1.txt"
+  label_url2: "label_domain2.txt"
+  data_path: "../data/cross"
+  save_path: "../results/baselines/cross"
+  norm: False
+  sort: False
+
+  scotv1:
+    k_step: 1
+
+  scotv2:
+    k_step: 1
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 2000
+    epsilon: 0.01
+    log_pd: 100  
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-6, 1.0e-6]]
+
+
+nike:
+  data_url1: "domain1.txt"
+  data_url2: "domain2.txt"
+  label_url1: "label_domain1.txt"
+  label_url2: "label_domain2.txt"
+  data_path: "../data/nike"
+  save_path: "../results/baselines/nike"
+  norm: False
+  sort: False
+
+  scotv1:
+    k_step: 1
+
+  scotv2:
+    k_step: 1
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 2000
+    epsilon: 0.01
+    log_pd: 100 
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-6, 1.0e-7]]
+
+
+scGEM:
+  data_url1: "scGEM_expression.csv"
+  data_url2: "scGEM_methylation.csv"
+  label_url1: "scGEM_typeExpression.txt"
+  label_url2: "scGEM_typeMethylation.txt"
+  data_path: "../data/scGEM"
+  save_path: "../results/baselines/scGEM"
+  norm: "l2"
+  sort: False
+
+  scotv1:
+    k_step: 1
+
+  scotv2:
+    k_step: 1
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: [138] # following the settings in pamona repo
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 2000
+    epsilon: 0.01
+    log_pd: 100 
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-6, 1.0e-6]]
+
+
+SNARE: 
+  data_url1: "SNAREseq_atac_feat.npy" 
+  data_url2: "SNAREseq_rna_feat.npy"
+  label_url1: "SNAREseq_atac_types.txt"
+  label_url2: "SNAREseq_rna_types.txt"
+  data_path: "../data/SNARE"
+  save_path: "../results/baselines/SNARE"
+  norm: "l2"
+  sort: True
+
+  scotv1:
+    k_step: 5
+
+  scotv2:
+    k_step: 5
+    e_range: [1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 5000
+    epsilon: 0.0005
+    log_pd: 1000
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-5, 1.0e-5]]
+
+
+scNMT: 
+  data_url1: "Paccessibility_300.txt"
+  data_url2: "Pmethylation_300.txt"
+  label_url1: "type1.txt"
+  label_url2: "type2.txt"
+  data_path: "../data/scNMT"
+  save_path: "../results/baselines/scNMT"
+  norm: False
+  sort: False
+
+  scotv1:
+    k_step: 5
+
+  scotv2:
+    k_step: 5
+    e_range: [5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "euclidean"], ["connectivity", "correlation"]]
+    rho_range: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+
+  pamona:
+    n_shared: null
+    Lambda: 1.0
+    e_range: [1.0e-3, 5.0e-3, 1.0e-2, 5.0e-2, 1.0e-1]
+    m_range: [["distance", "minkowski"], ["connectivity", "correlation"]]
+
+  unioncom:
+    epoch_pd: 10000
+    epsilon: 0.001
+    log_pd: 1000
+
+  mmdma: 
+    epoch: 5000
+    nfeat: 4
+    sigma: 0.0
+    kernel: "linear"
+    lambda_range: [[1.0e-3, 1.0e-3], [1.0e-5, 1.0e-6]]
