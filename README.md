@@ -1,13 +1,21 @@
 # sonata
-Source code for **SONATA: Disambiguated manifold alignment of single-cell data**
+Source code for **SONATA: Disambiguated manifold alignment of single-cell data**  
+
+**Updated on Nov. 1, 2024**: We have added more comprehensive tests for 5 baseline methods, which can be found in the *src/run_baselines* folder. We're also working on the new version of SONATA—coming soon! 
 
 ## Requirements
 Dependencies for **SONATA** are recorded in *requirements.txt*.  
 
-For illustration, we downloaded Manifold aligner **SCOT**, a commonly-used manifold alignment method using optimal transport, from its [official github](https://github.com/rsinghlab/SCOT). In principle, SONATA is generalizable to any off-the-shelf manifold alignment methods.
-
 ## Data
-All datasets are available at [this link](https://drive.google.com/drive/folders/1DKDP2eSfWODHiFqmn2GQY4m-sNda5seg?usp=sharing).
+All datasets are available at [this link](https://drive.google.com/drive/folders/1DKDP2eSfWODHiFqmn2GQY4m-sNda5seg).
+
+## Baseline Performance
+All baseline method tests are implemented in the folder *src/run_baselines*. To run a test, use the following commands:
+```python
+cd src
+python run_baselines/run_unioncom.py --dataset t_branch
+```
+
 
 ## Examples
 Jupyter notebooks to replicate the results from the manuscript are available under folder *examples*:  
