@@ -1,394 +1,328 @@
+import os, argparse, ot
 import numpy as np
-
-from sklearn.preprocessing import normalize, StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.neighbors import NearestNeighbors
-import scipy.sparse as sp 
-from scipy.spatial.distance import cdist
-
-from scipy.interpolate import UnivariateSpline
-from scipy.interpolate import splrep, PPoly
-
-from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
-
+from sklearn.preprocessing import normalize
+from sklearn.neighbors import kneighbors_graph, NearestNeighbors
+from utils.utils import *
 import itertools
-import ot
-
 
 class sonata(object):
     """
     SONATA algorithm for disambiguating manifold alignment of single-cell data
-    https://www.biorxiv.org/content/10.1101/2023.10.05.561049v2
-
+    https://www.biorxiv.org/content/10.1101/2023.10.05.561049v3
+    
     Input for SONATA: data in form of numpy arrays/matrices, where the rows correspond to samples and columns correspond to features.
-    Basic Use:
-    import sonata
-    sn = sonata.sonata(kmin=10, sigma=0.1, t=0.1)
-    alter_mappings = sn.alter_mapping(data)
-
-    Required parameters
-    - k: Number of neighbors to be used when constructing kNN graphs. Default=10. The number of neighbors k should be suffciently large to connect the corresponding k-NN graph   
-    - sigma: Bandwidth parameter for cell-wise ambiguity (Aij). Default=0.1.
-    - t: A threshold to ascertain the ambiguity status of individual cells before clustering them into groups. Default=0.1, with lower values resulting in stricter ambiguity classification.
-
-    Optional parameters:
-    - kmode: Determine whether to use a connectivity graph (adjacency matrix of 1s/0s based on whether nodes are connected) or a distance graph (adjacency matrix entries weighted by distances between nodes). Default="distance"
-    - kmetric: Sets the metric to use while constructing nearest neighbor graphs. some possible choices are "euclidean", "correlation". Default= "euclidean".
-    - kmax: Maximum value of knn when constructing geodesic distance matrix. Default=200.
-    - percnt_thres: The percentile of the data distribution used in the calculation of the “virtual” cell. Default=95.
-    - eval_knn: Evaluate whether the alternative alignment distorts the data manifold by changing the mutual nearest neighbors of cells. Default=False.    
+    Basic Usage: 
+        sn = sonata.sonata(params)
+        ambiguous_labels, ambiguous_idx = sn.diagnose(data)
+    
+    For more examples, refer to the examples folder.
     """
+    def __init__(self, params) -> None:
+        self.scot_k = params["scot_k"]
+        self.scot_mode = params["scot_mode"]
+        self.scot_metric = params["scot_metric"]
+        
+        self.repeat = params["repeat"]
+        self.n_cluster = params["n_cluster"]
+        self.noise_scale = params["noise_scale"]
+        self.n_dila = params["n_dila"]
+        self.n_neighbor = params["n_neighbor"]
+        self.n_bin = params["n_bin"]
+        self.elbow_k_range = params["elbow_k_range"]
+        self.spline_iter = params["spline_iter"]
+        self.pval_thres = params["pval_thres"]
+        
+        self.save_dir = params["save_dir"]
 
-    def __init__(self, kmin=10, sigma=0.1, t=0.1, kmax=200, kmode="distance", kmetric="euclidean", percnt_thres=95, eval_knn=False) -> None:
+    def diagnose(self, data):
+        cx_mat, coupling_mat, clust_cx_mat, clust_coupling_mat = self.noise_alignment(data)
 
-        self.kmin = kmin
-        self.kmax = kmax
-        self.kmode = kmode
-        self.kmetric = kmetric
+        exclude_pairs = self.get_outlier(clust_coupling_mat, clust_cx_mat, coupling_mat, cx_mat)
+        
+        ambiguous_labels, ambiguous_idx = self.find_ambiguous_groups(data, exclude_pairs)                
 
-        self.sigma = sigma
-        self.percnt_thres = percnt_thres
-        self.t = t
-        self.eval_knn = eval_knn
+        return ambiguous_labels, ambiguous_idx
 
-        self.geo_mat = None
-        self.knn = None
-        self.l1_mat = None
-        self.cell_amat = None
-        self.group_amats = None
+    
+    def noise_alignment(self, data, refresh=False):    
+        if not os.path.exists(self.save_dir): os.makedirs(self.save_dir)
+        coupling_iters_path = os.path.join(self.save_dir, 'coupling_iters')  
+        os.makedirs(coupling_iters_path, exist_ok=True)
+        
+        if (refresh==True) or not (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
+            np.seterr(under='ignore')
+            self.noise_alignment_scot(data, self.repeat, save_dir = coupling_iters_path)
 
-        # for plt
-        self.ambiguous_links = None
-        self.ambiguous_nodes = None
-        self.cluster_labels = None
-        # for elbow methods
-        self.K = None
-        self.K_yerror = None
-        self.K_xstep = None
-
-    def alt_mapping(self, data):
-        # cell-wise ambiguity
-        self.construct_graph(data)
-        self.l1_mat = self.geo_similarity(geo_dist=self.geo_mat)
-        self.cell_ambiguity()
-
-        # group-wise ambiguity
-        self.group_amats = self.group_ambiguity(data)
-
-        return self.group_amats
+        self.clust_labels = h_clustering(data, self.n_cluster)
+        cx_mat, coupling_mat, clust_cx_mat, clust_coupling_mat = self.denoise_coupling(data, load_path=self.save_dir, repeat=range(self.repeat))
+        return cx_mat, coupling_mat, clust_cx_mat, clust_coupling_mat
     
     
-    def construct_graph(self, data):
-        """
-        constructing knn graph and calculating geodestic distance
+    def noise_alignment_scot(self, data, repeat, save_dir):
+        graph, two_hop = get2hop(data, mode=self.scot_mode, metric=self.scot_metric, k=self.n_neighbor)
+        os.makedirs(save_dir, exist_ok=True)
 
-        kmax/kmin: k should be sufficiently large to connect the corresponding k-NN graph
-        kmode: 'connectivity'/'distance'
-        metric: 'euclidean'/'correlation'
-        """
-        print('constructing knn graph ...')
-        nbrs = NearestNeighbors(n_neighbors=self.kmin, metric=self.kmetric, n_jobs=-1).fit(data)
-        knn = nbrs.kneighbors_graph(data, mode = self.kmode)
+        for iter in range(repeat):
+            save_url = os.path.join(save_dir, f"coupling_iter{iter}.txt")
+            print("---------------SCOT Alignment Iter={}--------------".format(iter))
 
-        connected_components = sp.csgraph.connected_components(knn, directed=False)[0]
-        while connected_components != 1:
-            if self.kmin > np.max((self.kmax, 0.01*len(data))):
-                break
-            self.kmin += 2
-            nbrs = NearestNeighbors(n_neighbors=self.kmin, metric=self.kmetric, n_jobs=-1).fit(data)
-            knn = nbrs.kneighbors_graph(data, mode = self.kmode)
-            connected_components = sp.csgraph.connected_components(knn, directed=False)[0]
-        print('final k ={}'.format(self.kmin))
+            # + noise1: neighborhood noise
+            # + noise2: add n 2hop neighbors
+            include_self=True if self.scot_mode=="connectivity" else False
+            
+            graph1 = kneighbors_graph(data, n_neighbors=self.n_neighbor, mode='distance', metric='euclidean')
+            data1 = data + np.random.normal(loc=0.0, scale=np.mean(graph1.data)*self.noise_scale, size=data.shape)
 
-        # calculate the shortest distance between nodes
-        dist = sp.csgraph.floyd_warshall(knn, directed=False)
+            Xgraph = kneighbors_graph(data1, n_neighbors=self.n_neighbor, mode=self.scot_mode, metric=self.scot_metric, include_self=include_self)
+            Ygraph, _ = add_neighbors(graph.copy(), two_hop, n_dila = self.n_dila)
+            Cx = init_distances(Xgraph)
+            Cy = init_distances(Ygraph)
+
+            coupling, _= ot.gromov.entropic_gromov_wasserstein(Cx, Cy, p=ot.unif(data.shape[0]), q=ot.unif(data.shape[0]), 
+                                                                    loss_fun='square_loss', epsilon=1e-3, log=True, verbose=True)
+            
+            np.savetxt(save_url, coupling)
+
+
+    def denoise_coupling(self, data, load_path, repeat=[]):
+        N, P = data.shape
+        cx_mat = np.zeros((N, N))
+        coupling_mat = np.zeros((N, N)) 
+        clust_label = self.clust_labels
+
+        unq_clust_label, unq_clust_label_idx = np.unique(clust_label, return_index=True)
+        ordered_clust_label = unq_clust_label[np.argsort(unq_clust_label_idx)]
+        freq_mat = np.zeros((len(unq_clust_label), len(unq_clust_label)))
+
+        coupling_iters_path = os.path.join(load_path, 'coupling_iters')
+
+        for iter in repeat:
+            print("---------------Coupling Denoising Iter={}--------------".format(iter))
+            print("Load_path = {}".format(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt")))
+            coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
+
+            ## denoise
+            # 1. set coupling < average = 0
+            coupling[np.where(coupling < np.mean(coupling))] = 0
+            clust_coupling = coupling2clustcoupling(coupling, clust_label, ordered_clust_label)
+            # 2. calculate freqency matrix
+            clust_coupling_copy = clust_coupling.copy()
+            clust_coupling_copy[np.where(clust_coupling_copy > 0)] = 1
+            freq_mat += clust_coupling_copy
+            coupling_mat += coupling 
+
+        # calculate cx_mat
+        graph, _ = get2hop(data, self.scot_mode, self.scot_metric, k=self.n_neighbor)
+        cx_mat = init_distances(graph) 
+
+        # avg cluster-wise coupling & Cx matrix
+        clust_coupling_mat = coupling2clustcoupling(coupling_mat, clust_label, ordered_clust_label)
+        clust_cx_mat = coupling2clustcoupling(cx_mat, clust_label, ordered_clust_label)
+
+        freq_mat[np.where(freq_mat == 0)] = 1
+        clust_coupling_mat = clust_coupling_mat / freq_mat
+        coupling_mat = clustcoupling2coupling(clust_coupling_mat, clust_label, ordered_clust_label)
+
+        return cx_mat, coupling_mat, clust_cx_mat, clust_coupling_mat
         
-        dist_max = np.nanmax(dist[dist != np.inf])
-        dist[dist > dist_max] = 2*dist_max
-        
-        # global max-min normalization
-        norm_geo_dist = (dist - np.min(dist)) / (np.max(dist) - np.min(dist))
 
-        self.geo_mat = norm_geo_dist
-        self.knn = knn
+    def get_outlier(self, clust_coupling_mat, clust_cx_mat, coupling_mat, cx_mat, cx_tol=2e-2, coupling_tol=1e-5):
+        assert coupling_mat.shape == cx_mat.shape
+        N = coupling_mat.shape[0]
+
+        cx_mat /= cx_mat.max()
+        coupling_mat /= coupling_mat.max()
+        coupling_mat[coupling_mat < coupling_tol] = 0
+        cx_mat[cx_mat < cx_tol] = 0
+
+        avg_coupling_list = []
+        avg_cx_list = []
+        clust_pair_list = []
+
+        uniq_clusters = np.unique(self.clust_labels)
+        for idx1 in range(len(uniq_clusters)):
+            clust_indices1 = np.where(self.clust_labels==idx1)[0]
+
+            for idx2 in range(idx1, len(uniq_clusters)):
+                clust_indices2 = np.where(self.clust_labels==idx2)[0]
+
+                coupling_submat = coupling_mat[clust_indices1, :][:, clust_indices2]
+                coupling_avg = np.mean(coupling_submat) 
+
+                cx_submat = cx_mat[clust_indices1, :][:, clust_indices2]
+                cx_avg = np.mean(cx_submat)
+
+                # nonzero_indices = np.where(coupling_submat > 0)
+                # if len(nonzero_indices[0]) <= 0: continue
+
+                avg_coupling_list.append(coupling_avg)
+                avg_cx_list.append(cx_avg)
+                clust_pair_list.append((idx1, idx2))
+
+        # find missing zeros to help with denoising
+        x_arr, y_arr, pred_Y = fit_missingzeros(clust_cx_mat, clust_coupling_mat, n_bin=self.n_bin, fit_type="max_nondec_spline")
+        diff_y = pred_Y - y_arr
+
+        # add missingness
+        for idx in range(len(x_arr)): 
+            nums_zero = max(0, int(diff_y[idx]))
+            avg_cx_list += [x_arr[idx]] * nums_zero
+            # keep the same length as the avg_cx_list
+            avg_coupling_list += [0] * nums_zero
+            clust_pair_list += [(-1, -2)] * nums_zero
+
+        avg_coupling_list = np.asarray(avg_coupling_list)
+        avg_coupling_list /= np.max(avg_coupling_list)
+        avg_cx_list = np.asarray(avg_cx_list)
+        clust_pair_list = np.asarray(clust_pair_list)
+
+        sort_indices = np.argsort(avg_cx_list)
+        avg_cx_list = avg_cx_list[sort_indices]
+        avg_coupling_list = avg_coupling_list[sort_indices]
+        clust_pair_list = clust_pair_list[sort_indices]
+
+        include_indices = np.asarray(list(range(len(avg_coupling_list))), dtype=int)
+        exclude_indices = np.asarray([], dtype=int)
+        geo_thres = np.max(avg_cx_list[clust_pair_list[:,0] == clust_pair_list[:, 1]])
+        masked_indices = np.where(avg_cx_list <= geo_thres)[0]
+        
+        ## fit until no outliers or max iter
+        is_outliers = True
+        iter = 0
+        while iter < self.spline_iter and is_outliers == True:
+            currX = avg_cx_list[include_indices]
+            currY = avg_coupling_list[include_indices]
     
-    def geo_similarity(self, geo_dist):
-        sorted_geo_dist = np.sort(geo_dist, axis=1)
-        l1_dist = cdist(sorted_geo_dist, sorted_geo_dist, 'cityblock') / sorted_geo_dist.shape[1]
-        return l1_dist
+            ### fit spline: the P% lowest scatters to fit a spline (LinearGAM)
+            newY, res, lowest_idx = fit_spline(currX, currY, grid=0.1)
     
-    def cell_similarity(self, mat):
-        d_matrix = mat/np.power(self.sigma, 2)
-        d_matrix_e = np.exp(-d_matrix)
-        d_matrix_sum = np.sum(d_matrix_e, axis = 1).reshape(d_matrix_e.shape[0],1)
-        cell_amat = d_matrix_e/d_matrix_sum
-        # normalize cell-wise ambiguity to 0-1 range
-        cell_amat = (cell_amat - np.min(cell_amat, axis=1, keepdims=True)) / (np.max(cell_amat, axis=1, keepdims=True) -
-                                                                    np.min(cell_amat, axis=1, keepdims=True))
-        return cell_amat
+            ## P-value Calculation: left lowest_idx nodes as neighbors for node i, one-tail test
+            p_values = p_value(res, currX, lowest_idx, geo_thres)
 
-    def cell_ambiguity(self):
-        print('calculating cell-wise ambiguity ...')
-        # ambiguity
-        init_cell_amat = self.cell_similarity(self.l1_mat)
+            indices = np.where(p_values <= self.pval_thres)[0]
+            print("Outlier cluster indices={}".format(indices))
 
-        # ambiguity safeguard
-        cell_amat_safe = self.safe_ambiguity(self.l1_mat)
+            if len(indices) > 0:
+                outlier_indices = include_indices[indices]
+                outlier_indices = np.setdiff1d(outlier_indices, masked_indices)
+                is_outliers = False if len(outlier_indices) == 0 else True
 
-        # ambiguity calibration
-        cell_amat_clean = self.fit_spline(cell_amat_safe)
+                include_indices = np.setdiff1d(include_indices, outlier_indices)
+                exclude_indices = np.union1d(exclude_indices, outlier_indices)
+                print("iter={}\tinclude_indices={}\texclude_indices={}".format(iter, include_indices, exclude_indices))
+            else:
+                is_outliers = False
 
-        self.cell_amat = cell_amat_clean
-
-    def safe_ambiguity(self, mat):
-        n = self.geo_mat.shape[0]
-        geo_mat_shuffled = self.geo_mat.copy().flatten()
-        np.random.shuffle(geo_mat_shuffled)
-        geo_mat_shuffled = geo_mat_shuffled.reshape(self.geo_mat.shape)
-        l1_mat_shuffled = self.geo_similarity(geo_mat_shuffled)
-
-        percent_l1 = np.percentile(mat, q=self.percnt_thres, axis=1)
-        percent_l1_shuffled = np.percentile(l1_mat_shuffled, q=self.percnt_thres, axis=1)
-        control_vec = percent_l1 * np.sign(percent_l1 - percent_l1_shuffled)
-        l1_mat_aug = np.zeros((n+1, n+1))
-        l1_mat_aug[:n, :n] = mat
-        l1_mat_aug[n, :n] = control_vec
-        l1_mat_aug[:n, n] = control_vec
-        cell_amat_safe = self.cell_similarity(l1_mat_aug)
-
-        cell_vec_aug = cell_amat_safe[:n, n]
-        cell_amat_safe = cell_amat_safe[:n, :n]
-        # Ambiguous value should not be higher than baseline (cell_vec_aug)
-        for node_idx in range(n):
-            cell_amat_safe[node_idx, :] = np.maximum(cell_amat_safe[node_idx, :], cell_vec_aug[node_idx])
-        return cell_amat_safe
-
-    def fit_spline(self, cell_amat, r=10):
-        cell_amat_clean = np.copy(cell_amat)
-        for node_id in range(cell_amat.shape[0]):
-            tuple_arr = list(zip(self.geo_mat[node_id, :], cell_amat[node_id, :], ))
-            tuple_arr.sort(key=lambda x: x[0])
-
-            geo_arr = np.asarray([x[0] for x in tuple_arr], dtype=float)
-            Y_arr = np.asarray([x[1] for x in tuple_arr], dtype=float)
-            X_arr = np.asarray(list(range(len(tuple_arr))), dtype=float)
- 
-            # smoothen cell-wise ambiguity by averaging nearest neighbors with radius = r
-            Y_arr_smooth = np.copy(Y_arr)
-            for mid_idx in range(len(Y_arr)):
-                Y_arr_smooth[mid_idx] = np.mean(Y_arr[max(0, mid_idx-r):min(len(Y_arr), mid_idx+r)])
-
-            # remove noise for all-ambiguous datasets
-            Y_arr_smooth = np.where(Y_arr_smooth < 0.1, np.round(Y_arr_smooth, 1), Y_arr_smooth)
-            Y_arr = Y_arr_smooth
-
-            # fitting spline 
-            spline = UnivariateSpline(X_arr, Y_arr, k = 4) 
-
-            # find minimal inflection point of the curve
-            dv1 = spline.derivative(n = 1) # 1st derivative
-            y_dv1 = dv1(X_arr)
-            tck = splrep(X_arr, y_dv1)
-            ppoly = PPoly.from_spline(tck)
-            dv1_roots = ppoly.roots(extrapolate=False) # 1st derivative = 0
-            dv2 = spline.derivative(n = 2) # 2nd derivative
-
-            # remove ambiguous neighbors by detecting 1st minimal inflection point
-            curve_m = np.where(dv2(dv1_roots) > 0)[0]
-
-            if len(curve_m) > 0:
-                idx = int(dv1_roots[curve_m[0]])
-                cell_amat_clean[node_id, self.geo_mat[node_id, :] <= geo_arr[idx]] = np.min(cell_amat_clean[node_id, :])
-        
-        return cell_amat_clean
+            iter +=1
+        print("length of include_indices={}\texclude_indices={}".format(len(include_indices), len(exclude_indices)))
+        return clust_pair_list[exclude_indices]
 
 
-    def group_ambiguity(self, data):
-        print('calculating group-wise ambiguity ...')
-        ambiguous_nodes = self.select_ambiguous_nodes()
-        unambiguous_nodes = np.setdiff1d(list(range(data.shape[0])), ambiguous_nodes)
-        self.ambiguous_nodes = ambiguous_nodes
-
-        if len(ambiguous_nodes) == 0:
-            print("There is no ambiguous")
-            map_mat = None
-        else:
-            ambiguous_node_groups = self.find_ambiguous_groups(data, ambiguous_nodes)
-            map_mat = self.map_ambiguous_groups(data, ambiguous_node_groups, unambiguous_nodes)
-
-        return map_mat
-        
-
-    def select_ambiguous_nodes(self):
-        cell_amat_copy = self.cell_amat.copy()
-        n = cell_amat_copy.shape[0]
-        cell_amat_copy[cell_amat_copy <= self.t] = 0
-        cell_amat_sum_arr = cell_amat_copy.sum(axis=1)
-        ambiguous_nodes = np.where(cell_amat_sum_arr > 0)[0]
-        return ambiguous_nodes
-
-    def find_ambiguous_groups(self, data, ambiguous_nodes):
+    def find_ambiguous_groups(self, data, exclude_clust_pairs, K=None,):
         '''
         using semi-supervised-clustering with cannot link
         code: https://github.com/datamole-ai/active-semi-supervised-clustering
         '''
+        from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
+        if len(exclude_clust_pairs) == 0:
+            return [], np.array([], dtype=int), np.array([], dtype=int), []
         
-        data_mat_ambiguous = data[ambiguous_nodes, :]
-        cell_amat_ambiguous = self.cell_amat[ambiguous_nodes, :][:, ambiguous_nodes]
+        # calculate ambiguous nodes
+        ambiguous_idx = []
+        for clust_pair in exclude_clust_pairs:
+            ambiguous_idx += np.where((self.clust_labels == clust_pair[0]) | (self.clust_labels == clust_pair[1]))[0].tolist()
+        ambiguous_idx = np.sort(list(set(ambiguous_idx)))
 
-        # ambiguity threshold
-        ambiguous_indices = np.where(cell_amat_ambiguous > self.t)
-        
+        ambiguous_data = data[ambiguous_idx, :]
+
         # all cell-wise ambiguity
-        cannot_links = list(zip(ambiguous_indices[0], ambiguous_indices[1]))
-        
+        cannot_links = exclude_clust_pairs # [[], []]
+        cannot_links = []
+        for clust_pair in exclude_clust_pairs:
+            pf = np.where(self.clust_labels[ambiguous_idx] == clust_pair[0])[0]
+            ps = np.where(self.clust_labels[ambiguous_idx] == clust_pair[1])[0]
+            cannot_links.append(np.array(np.meshgrid(pf, ps)).T.reshape(-1, 2))
+        cannot_links = np.vstack(cannot_links).tolist()
+
         # group ambiguous nodes  -- elbow method to choose k
         print('deciding best k for clustering ...')
-        if self.K == None:
-            self.elbow_k(data_mat_ambiguous, cannot_links, k_range=10)
-            print('K = {} groups choosen by elbow method'.format(self.K))
-        clusterer = PCKMeans(n_clusters=self.K)
-        clusterer.fit(data_mat_ambiguous, cl=cannot_links)
+        if K == None:
+            K, y_error, x_step = elbow_k(ambiguous_data, cannot_links, k_range=self.elbow_k_range)
+            print('K = {} groups choosen by elbow method'.format(K))
+            
+        clusterer = PCKMeans(n_clusters=K)
+        clusterer.fit(ambiguous_data, cl=cannot_links)
         labels = np.asarray(clusterer.labels_, dtype=int)
+    
+        ambiguous_labels = np.empty_like(labels)
+        for clust_label in np.unique(self.clust_labels[ambiguous_idx]):
+            clust_idx = np.where(self.clust_labels[ambiguous_idx] == clust_label)[0]
+            unique, counts = np.unique(labels[clust_idx], return_counts=True)
+            most_freq_cls = unique[np.argmax(counts)]
+            ambiguous_labels[clust_idx] = most_freq_cls
 
-        ambiguous_node_groups = []
-        for class_label in np.unique(labels):
-            class_indices = np.where(labels == class_label)[0]
-            ambiguous_node_groups.append(ambiguous_nodes[class_indices])
+        ambiguous_idx_groups = []
+        for class_label in np.unique(ambiguous_labels):
+            class_indices = np.where(ambiguous_labels == class_label)[0]
+            ambiguous_idx_groups.append(class_indices)
+            print("Ambiguous group {} = {}".format(class_label, class_indices))
         
-        self.ambiguous_links = cannot_links
-        self.cluster_labels = labels
-        return ambiguous_node_groups
+        self.cannot_links = cannot_links
 
-    # elbow k for find_ambiguous_groups    
-    def elbow_k(self, data, cannot_link, k_range = 10):
-        from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
-        cl_arr = np.transpose(np.array(cannot_link))
+        return ambiguous_labels, ambiguous_idx
+    
 
-        # calculate # of ambiguity pairs for each k
-        y_error = []
-        for k in range(1, k_range):
-            clusterer = PCKMeans(n_clusters=k)
-            clusterer.fit(data, cl=cannot_link)
+def map_ambiguous_groups(data, geo_mat, ambiguous_labels, ambiguous_idx):
+    np.seterr(under='ignore')
+    N = data.shape[0]
+    unambiguous_idx = np.setdiff1d(list(range(N)), ambiguous_idx)
+    assert N == len(ambiguous_idx)+len(unambiguous_idx)
+    
+    uniq_groups = np.unique(ambiguous_labels)
 
-            labels = clusterer.labels_
-            n_pairs = 0
-            for label in np.unique(labels):
-                this_cluster = np.where(labels == label)[0]
-                n_pairs += np.sum(np.logical_and(np.isin(cl_arr[0], this_cluster), 
-                                                            np.isin(cl_arr[1], this_cluster)))
-            y_error.append(n_pairs)
+    ### evaluate valid group
+    valid_perm= list(itertools.permutations(range(len(uniq_groups))))[1:]
+    # print("all perms = {} ".format(valid_perm))
 
-        # normalize error
-        y_error = np.array(y_error)/np.square(data.shape[0])
-        # normalize x axis
-        x_step = 1/data.shape[0]
+    ### calculate the cost matrix
+    cost_mat = cdist(np.sort(geo_mat, axis=1), np.sort(geo_mat, axis=1), 'cityblock') / geo_mat.shape[1] 
+           
+    assert len(uniq_groups) > 1
+    for perms in valid_perm:
+        # keep the diagonal for original nodes
+        map_mat = np.zeros((N, N))
+        # print("perms: ", perms)
 
-        # choose the best k by 2nd derivative
-        best_k = np.argmax(self.second_grad(y_error, step = x_step)) + 2
+        # keep the diagonal for unambiguous nodes
+        for node in unambiguous_idx: map_mat[node, node] = 1.0        
 
-        self.K = best_k
-        self.K_yerror = y_error
-        self.K_xstep = x_step
+        for i in range(len(uniq_groups)):
+            group_idx1 = i
+            group_idx2 = perms[i]
 
-    def map_ambiguous_groups(self, data, ambiguous_node_groups, unambiguous_nodes):
-        np.seterr(under='ignore')
-        ambiguous_nodes = np.asarray([], dtype=int)
-        for group in ambiguous_node_groups:
-            ambiguous_nodes = np.concatenate((ambiguous_nodes, group))
-        assert data.shape[0] == len(ambiguous_nodes)+len(unambiguous_nodes)
+            node_group1 = ambiguous_idx[ambiguous_labels==group_idx1]
+            node_group2 = ambiguous_idx[ambiguous_labels==group_idx2]
 
-        ### evaluate valid group
-        if self.eval_knn:
-            valid_perm = self.eval_valid_group_knn(ambiguous_node_groups, unambiguous_nodes)
-        else:
-            valid_perm= list(itertools.permutations(range(len(ambiguous_node_groups))))[1:]
-        print("all vaild perms are: ", valid_perm)
+            if group_idx1 == group_idx2:
+                # keep the diagonal for unchanged nodes
+                for node in np.concatenate((node_group1, node_group2)): map_mat[node, node] = 1.0 
+            else:
+                # print('changed group id: ', group_idx1, group_idx2)
+                # print('{} = {}'.format(group_idx1, node_group1) )
+                # print('{} = {}'.format(group_idx2, node_group2) )
+                
+                # aligning ambiguous group pairs
+                cost = cost_mat[node_group1, :][:, node_group2]
+                p1 = ot.unif(len(node_group1))
+                p2 = ot.unif(len(node_group2))
+                T = ot.emd(p1, p2, cost)
+                T = normalize(T, norm='l1', axis=1, copy=False)
 
-        assert len(ambiguous_node_groups) > 1
-        for perms in valid_perm:
-            # keep the diagonal for original nodes
-            map_mat = np.zeros_like(self.geo_mat)
-            print("perms: ", perms)
+                # fill in the T matrix for mapped nodes 
+                for group1_idx in range(len(node_group1)):
+                    group1_node = node_group1[group1_idx]
+                    for group2_idx in range(len(node_group2)):
+                        group2_node = node_group2[group2_idx]
+                        map_mat[group1_node, group2_node] = T[group1_idx, group2_idx]
 
-            # keep the diagonal for unambiguous nodes
-            for node in unambiguous_nodes: map_mat[node, node] = 1.0        
-
-            for i in range(len(ambiguous_node_groups)):
-                group_idx1 = i
-                group_idx2 = perms[i]
-
-                node_group1 = ambiguous_node_groups[group_idx1]
-                node_group2 = ambiguous_node_groups[group_idx2]
-
-                if group_idx1 == group_idx2:
-                    # keep the diagonal for unchanged nodes
-                    for node in np.concatenate((node_group1, node_group2)): map_mat[node, node] = 1.0 
-                else:
-                    print('changed group id: ', group_idx1, group_idx2)
-                    # aligning ambiguous group pairs
-                    cost = 1-self.cell_amat
-                    cost = cost[node_group1, :][:, node_group2]
-                    p1 = ot.unif(len(node_group1))
-                    p2 = ot.unif(len(node_group2))
-                    T = ot.emd(p1, p2, cost)
-                    T = normalize(T, norm='l1', axis=1, copy=False)
-
-                    # fill in the T matrix for mapped nodes 
-                    for group1_idx in range(len(node_group1)):
-                        group1_node = node_group1[group1_idx]
-                        for group2_idx in range(len(node_group2)):
-                            group2_node = node_group2[group2_idx]
-                            map_mat[group1_node, group2_node] = T[group1_idx, group2_idx]
-
-            yield map_mat
-
-
-    # second graduate for k elbow
-    def second_grad(self, k_arr, step):
-        # first grad
-        first_grad = (k_arr[1:] - k_arr[:-1])/step 
-        # 2nd grad
-        second_grad = (first_grad[1:] - first_grad[:-1])/(1+first_grad[1:]*first_grad[:-1])
-        second_grad = np.arctan(np.abs(second_grad))
-
-        return second_grad
-
-    def eval_valid_group_knn(self, ambiguous_node_groups, unambiguous_nodes):
-        knn = self.knn.tocoo()
-        knn_arr = knn.toarray()
-
-        connected_groups = []
-        for tup in list(itertools.combinations(range(len(ambiguous_node_groups)), 2)):
-            group_idx1, group_idx2 = tup[0], tup[1]
-            node_group1 = ambiguous_node_groups[group_idx1]
-            node_group2 = ambiguous_node_groups[group_idx2]
-            sub_knn_arr = knn_arr[node_group1, :][:, node_group2]
-            if np.sum(sub_knn_arr) > 0.0:
-                connected_groups.append(tup)
-        print("connected_groups_ambiguous: ", connected_groups)
-
-        for group_idx1 in range(len(ambiguous_node_groups)):
-            group_idx2 = -1 # unambiguous nodes
-            node_group1 = ambiguous_node_groups[group_idx1]
-            sub_knn_arr = knn_arr[node_group1, :][:, unambiguous_nodes]
-            if np.sum(sub_knn_arr) > 0:
-                connected_groups.append((group_idx1, group_idx2))
-        connected_groups = np.array(connected_groups)
-        print('connected_groups_all: ', connected_groups)   
-        
-        valid_perm = []
-        sorted_connected_groups = np.sort(connected_groups, axis = 1)
-        for perms in list(itertools.permutations(range(len(ambiguous_node_groups))))[1:]:
-            new_connected_groups = np.copy(connected_groups)
-            for i in range(len(ambiguous_node_groups)):
-                group_idx1 = i
-                group_idx2 = perms[i]
-                if group_idx1 != group_idx2:
-                    new_connected_groups[connected_groups == group_idx1] = group_idx2  
-            sorted_new_connected_groups = np.sort(new_connected_groups, axis = 1)  
-
-            if sorted(sorted_connected_groups.tolist()) == sorted(sorted_new_connected_groups.tolist()):
-                valid_perm.append(perms)
-
-        return valid_perm
+        yield map_mat
