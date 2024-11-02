@@ -4,4 +4,8 @@ scikit-learn
 scipy
 active-semi-supervised-clustering
 matplotlib
-mpl_toolkits
+pyyaml
+pygam
+torch
+umap-learn
+pamona
