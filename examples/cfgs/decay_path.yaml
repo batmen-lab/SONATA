@@ -2,8 +2,8 @@ data_url1: "domain1.txt"
 data_url2: "domain2.txt"
 label_url1: "label_domain1.txt"
 label_url2: "label_domain2.txt"
-data_path: "../data/t_branch"
-save_dir: "../results/sonata_pipeline/t_branch"
+data_path: "../data/decay_path"
+save_dir: "../results/sonata_pipeline/decay_path"
 norm: False
 sort: False
 

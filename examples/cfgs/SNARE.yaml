@@ -1,0 +1,19 @@
+data_url1: "SNAREseq_atac_feat.npy"
+data_url2: "SNAREseq_rna_feat.npy"
+label_url1: "SNAREseq_atac_types.txt"
+label_url2: "SNAREseq_rna_types.txt"
+data_path: "../data/SNARE"
+save_dir: "../results/sonata_pipeline/SNARE"
+norm: "l2"
+sort: True
+
+scot_k: 110
+scot_e: 1.0e-3
+scot_mode: "connectivity"
+scot_metric: "correlation"
+
+n_cluster: 20
+noise_scale: 0.2 # It can also be set to 0.55 for modality1 and 0.3 for modality2 to preserve 80% manifold similarity.
+repeat: 10
+n_neighbor: 10
+pval_thres: 1.0e-2

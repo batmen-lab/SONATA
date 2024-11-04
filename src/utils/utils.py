@@ -66,7 +66,7 @@ def get2hop(data, mode, metric, k):
 
     return graph, two_hop
 
-def add_neighbors(graph, two_hop, n_dila=2):
+def add_neighbors(graph, two_hop, n_neighbor=2):
     dila_links = []
     for k in two_hop.keys():
         n=0
@@ -78,7 +78,7 @@ def add_neighbors(graph, two_hop, n_dila=2):
                 dila_links.append((k, v))
                 graph[k, v] = candidates_dict[v]
                 n += 1
-            if n >= n_dila: break
+            if n >= n_neighbor: break
 
     dila_links = np.asarray(dila_links)
     return graph, dila_links
@@ -165,18 +165,19 @@ def p_value(res, currX, lowest_idx, geo_thres, epsilon=1e-2):
     p_values = np.asarray(p_values)
     return p_values
 
-def fit_missingzeros(clust_cx_mat, clust_coupling_mat, n_bin=30, fit_type="nondec_spline"):
+def add_missingness(clust_mats, add_lists, n_bin=30, fit_type="nondec_spline"):
+    clust_dist_mat, clust_coupling_mat = clust_mats
     # bin-wise clust_cx_mat
     bins = np.linspace(0, 1, n_bin)
 
-    bin_clust_cx_mat = bins[np.digitize(clust_cx_mat.reshape(-1), bins)]
-    bin_clust_cx_mat_flat = bin_clust_cx_mat.reshape(-1)
+    bin_clust_dist_mat = bins[np.digitize(clust_dist_mat.reshape(-1), bins)]
+    bin_clust_dist_mat_flat = bin_clust_dist_mat.reshape(-1)
     clust_coupling_mat_flat = clust_coupling_mat.reshape(-1)
     
-    x_arr = np.unique(bin_clust_cx_mat_flat)
+    x_arr = np.unique(bin_clust_dist_mat_flat)
     y_arr = []
     for score in x_arr:
-        idx = np.where(bin_clust_cx_mat_flat == score)[0]
+        idx = np.where(bin_clust_dist_mat_flat == score)[0]
         zeor_idx = np.where(clust_coupling_mat_flat[idx] == 0)[0]
         y_arr.append(len(zeor_idx))
     y_arr = np.array(y_arr)
@@ -202,9 +203,20 @@ def fit_missingzeros(clust_cx_mat, clust_coupling_mat, n_bin=30, fit_type="nonde
         pred_Y = iso_reg.predict(x_arr)
     else:
         raise ValueError('Fit_type must be in ["linearGAM", "nondec_spline", "max_nondec_spline"], instead of {}.'.format(fit_type))
-
-    return x_arr, y_arr, pred_Y
-
+    
+    # add missingness
+    avg_dist_list = add_lists["avg_dist_list"]
+    avg_coupling_list = add_lists["avg_coupling_list"]
+    clust_pair_list = add_lists["clust_pair_list"]
+    diff_y = pred_Y - y_arr
+    for idx in range(len(x_arr)): 
+        nums_zero = max(0, int(diff_y[idx]))
+        avg_dist_list += [x_arr[idx]] * nums_zero
+        # keep the same length as the avg_cx_list
+        avg_coupling_list += [0] * nums_zero
+        clust_pair_list += [(-1, -2)] * nums_zero # (-1, -2) is a dummy cluster pair
+        
+    return (avg_dist_list, avg_coupling_list, clust_pair_list)
 
 
 def elbow_k(data, cannot_link, k_range = 10):
@@ -277,3 +289,24 @@ def geodistance(data, kmin = 10, kmax = 200, dist_mode = 'distance', metric = 'e
     # norm_geo_dist = dist 
 
     return norm_geo_dist
+
+
+from .metrics import transfer_accuracy
+def sonata_best_acc(x_aligned, y_aligned, label1, label2, alter_mappings, mapping):
+    acc_best = 0
+    x_aligned_best = None
+    y_aligned_best = None
+    best_mapping = None
+    for idx, m in enumerate(alter_mappings):
+        this_mapping = np.matmul(m, mapping)
+        x_aligned_new = np.matmul(m, x_aligned)
+        y_aligned_new = y_aligned
+        
+        acc = transfer_accuracy(x_aligned_new, y_aligned_new, label1, label2)
+        if acc > acc_best:
+            x_aligned_best = x_aligned_new
+            y_aligned_best = y_aligned_new
+            best_mapping = this_mapping
+            acc_best = acc 
+        
+    return x_aligned_best, y_aligned_best, best_mapping, acc_best

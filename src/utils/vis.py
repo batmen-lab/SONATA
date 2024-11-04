@@ -1,6 +1,11 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from matplotlib.colors import ListedColormap
+from matplotlib import colorbar
+
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 import umap
@@ -49,6 +54,39 @@ def plt_domain_by_labels(data_mat, label, title, marker='.', save_url = '', a = 
         plt.savefig(save_url, bbox_inches="tight")
         plt.close() 
 
+def plt_domain_bio_labels(data_mat, label, title, y_tick_labels, marker = '.', a = 0.8, show=False, save_url=""):
+    pca = PCA(n_components=2).fit(data_mat)
+    data_embed = pca.fit_transform(data_mat)
+
+    uniq_label = np.unique(label)
+    size = len(uniq_label)
+    colormap = plt.get_cmap('rainbow', len(uniq_label))
+    norm = mpl.colors.BoundaryNorm(np.arange(0.5,len(uniq_label)+1.5), size) #colormap.N) 
+    
+    #Plot aligned domains, samples colored by domain identity:
+    fig = plt.figure(figsize=(5, 5))
+    ax0 = plt.subplot(1,1,1)
+    while np.min(label) < 1: label += 1
+    plt.scatter(data_embed[:,0], data_embed[:,1], c = label, label="domain1", s=60, alpha=a, marker=marker, cmap=colormap, norm=norm) 
+    
+    x_min = np.min(data_embed[:, 0])
+    x_max = np.max(data_embed[:, 0])
+    plt.xlim(x_min-0.03*(x_max-x_min), x_max+0.1*(x_max-x_min))   
+    plt.title(title, fontdict={'fontsize': 20})
+    plt.xlabel("Principal component 1", fontsize=15)
+    plt.ylabel("Principal component 2", fontsize=15)
+    plt.tick_params(axis='x', labelsize=12)
+    plt.tick_params(axis='y', labelsize=12)
+    cbaxes = inset_axes(ax0, width="3%", height="100%", loc='right') 
+    cbar = plt.colorbar(cax=cbaxes, orientation='vertical')
+    cbar.set_ticks(ticks=(np.arange(0,len(uniq_label))+1), labels=y_tick_labels)
+    if show:
+        plt.show()
+    else:
+        assert (save_url is not None), "Please specify save_url!"
+        os.makedirs(os.path.dirname(save_url), exist_ok=True)
+        plt.savefig(save_url, bbox_inches="tight")
+        plt.close() 
 
 
 def plt_ambiguous_groups_by_labelcolor(data_mat, ambiguous_nodes, ambiguous_labels, marker='.', save_url='', alpha=0.5, show=False, vs_mode='pca'):
@@ -229,4 +267,81 @@ def plt_mapping_by_labels(X_new: np.ndarray, y_new: np.ndarray,
         assert (save_url is not None), "Please specify save_url!"
         os.makedirs(os.path.dirname(save_url), exist_ok=True)
         plt.savefig(save_url, bbox_inches="tight")
+        plt.close()
+
+def plt_mapping_bio_labels(X_new, y_new, label1, label2, title1, title2, y_tick_labels, suptitle, a = 0.8, proj_type='XtoY', show=False, save_url=""):
+    data_mat = np.concatenate((X_new, y_new), axis=0)
+    pca = PCA(n_components=2).fit(data_mat)
+    data_embed = pca.fit_transform(data_mat)
+
+    X_proj=data_embed[0: X_new.shape[0],]
+    y_proj=data_embed[X_new.shape[0]:,]
+
+    all_label = np.unique(np.concatenate((label1, label2), axis = 0))
+    colormap = plt.get_cmap('rainbow', len(all_label))
+    norm = mpl.colors.BoundaryNorm(np.arange(0.5,len(all_label)+1.5), colormap.N) 
+
+    uniq_label1 = np.unique(label1)
+    while np.min(label1) < 1: label1 += 1
+    colormap1 = ListedColormap([colormap(i-1) for i in uniq_label1])
+    norm1 = mpl.colors.BoundaryNorm(np.arange(0.5,len(uniq_label1)+1.5), len(uniq_label1))
+
+    uniq_label2 = np.unique(label2)
+    while np.min(label2) < 1: label2 += 1
+    colormap2 = ListedColormap([colormap(i-1) for i in uniq_label2])
+    norm2 = mpl.colors.BoundaryNorm(np.arange(0.5,len(uniq_label2)+1.5), len(uniq_label2))
+
+    #Plot aligned domains, samples colored by domain identity:
+    fig = plt.figure(figsize=(5, 5))
+    ax0 = plt.subplot(1,1,1)
+    colormap = plt.get_cmap('rainbow', len(all_label))  
+    
+    if proj_type=='XtoY':
+        plt.scatter(y_proj[:,0], y_proj[:,1], c=label2, s=40, alpha=a, cmap=colormap2, norm=norm2, label = title2, marker = '*')    
+        plt.scatter(X_proj[:,0], X_proj[:,1], c=label1, s=10, alpha=a, cmap=colormap1, norm=norm1, label = title1)
+    else:
+        plt.scatter(X_proj[:,0], X_proj[:,1], c=label1, s=40, alpha=a, cmap=colormap1, norm=norm1, label = title1)        
+        plt.scatter(y_proj[:,0], y_proj[:,1], c=label2, s=10, alpha=a, cmap=colormap2, norm=norm2, label = title2, marker = '*') 
+
+    x_min = np.min(data_embed[:, 0])
+    x_max = np.max(data_embed[:, 0])
+    plt.xlim(x_min-0.03*(x_max-x_min), x_max+0.1*(x_max-x_min))   
+
+    plt.title(suptitle, fontdict={'fontsize': 20})    
+    plt.xlabel("Principal component 1", fontsize=15)
+    plt.ylabel("Principal component 2", fontsize=15)
+    plt.tick_params(axis='x', labelsize=12)
+    plt.tick_params(axis='y', labelsize=12)
+    cbaxes = inset_axes(ax0, width="3%", height="100%", loc='right') 
+    y_colorbar = colorbar.ColorbarBase(
+        cbaxes,
+        ticklocation = 'right', 
+        alpha=0.6,
+        cmap=colormap, norm=norm, orientation='vertical', ticks=(np.arange(0,len(all_label))+1)) #labels=y_tick_labels)
+    y_colorbar.set_ticks(ticks=(np.arange(0,len(all_label))+1), labels=y_tick_labels)
+    if show:
+        plt.show()
+    else:
+        assert (save_url is not None), "Please specify save_url!"
+        os.makedirs(os.path.dirname(save_url), exist_ok=True)
+        plt.savefig(save_url, bbox_inches="tight")
+        plt.close()
+
+
+def plt_fit_spline(scatter_x, scatter_y, inliers, outliers, spline_x, spline_y, title="", show=False, save_url=""):
+    fig = plt.figure(figsize=(5, 5))
+    plt.scatter(scatter_x[inliers], scatter_y[inliers], s=10, marker='o', c='grey', label="Normal cluster pair")
+    if len(outliers) > 0:
+        plt.scatter(scatter_x[outliers], scatter_y[outliers], s=10, marker='o', c='red', label="Noise cluster pair")
+
+    plt.plot(spline_x, spline_y, 'g-')
+    plt.xlabel('Geodesic distance', fontsize=10)
+    plt.ylabel('Coupling strength', fontsize=10)
+    plt.title(title)
+    plt.legend()
+    if show:
+        plt.show()
+    else:
+        os.makedirs(os.path.dirname(save_url), exist_ok=True)
+        plt.savefig(save_url)
         plt.close()
