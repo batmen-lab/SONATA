@@ -5,6 +5,7 @@ from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.neighbors import kneighbors_graph
 from scipy.sparse.csgraph import dijkstra, connected_components
 from sklearn.neighbors import kneighbors_graph, NearestNeighbors
+from sklearn.metrics import silhouette_score
 from scipy.sparse import csr_matrix
 from scipy.spatial.distance import cdist
 from pygam import LinearGAM, s
@@ -292,15 +293,20 @@ def geodistance(data, kmin = 10, kmax = 200, dist_mode = 'distance', metric = 'e
 
 
 from .metrics import transfer_accuracy
-def sonata_best_acc(x_aligned, y_aligned, label1, label2, alter_mappings, mapping):
+def sonata_best_acc(x_aligned, y_aligned, label1, label2, alter_mappings, mapping, modality=1):
     acc_best = 0
     x_aligned_best = None
     y_aligned_best = None
     best_mapping = None
     for idx, m in enumerate(alter_mappings):
-        this_mapping = np.matmul(m, mapping)
-        x_aligned_new = np.matmul(m, x_aligned)
-        y_aligned_new = y_aligned
+        if modality == 1:
+            this_mapping = np.matmul(m, mapping)
+            x_aligned_new = np.matmul(m, x_aligned)
+            y_aligned_new = y_aligned
+        else:
+            this_mapping = np.matmul(mapping, m.T)
+            x_aligned_new = x_aligned
+            y_aligned_new = np.matmul(m, y_aligned)
         
         acc = transfer_accuracy(x_aligned_new, y_aligned_new, label1, label2)
         if acc > acc_best:
@@ -310,3 +316,19 @@ def sonata_best_acc(x_aligned, y_aligned, label1, label2, alter_mappings, mappin
             acc_best = acc 
         
     return x_aligned_best, y_aligned_best, best_mapping, acc_best
+
+def silhouette_score_elbow(coupling_iters, ncluster_range=range(2, 10), metric='euclidean'):
+    sil = []
+    # dissimilarity would not be defined for a single cluster, thus, minimum number of clusters should be 2
+    for k in ncluster_range:
+        clustering = KMeans(n_clusters=k).fit(coupling_iters)
+        labels = clustering.labels_
+        sil.append(silhouette_score(coupling_iters, labels, metric=metric))
+    return sil
+
+def check_diagonal_score(coupling_mat):
+    N, N = coupling_mat.shape
+    cnt = 0
+    for i in range(N):
+        cnt += 1 if coupling_mat[i, i] > 0 else 0
+    return cnt

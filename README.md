@@ -24,22 +24,25 @@ Jupyter notebooks to replicate the results from the manuscript are available und
 - Real biology datasets
     - scGEM: [scGEM.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/scGEM.ipynb)
     - SNARE: [SNARE.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/SNARE.ipynb)
+    - scNMT: [scNMT.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/scNMT.ipynb)
 
 
 ## Basic Use
-Input for SONATA: 
- - **params**: A dictionary containing the following keys:
-    - **scot_k**, **scot_e**, **scot_mode**, **scot_metric**: Parameters for manifold aligners. Refer to the SCOT tutorial for guidance on setting these parameters.
-    - **n_cluster**:Number of cell groups used in hierarchical clustering to achieve a smooth and efficient spline fit. Recommended: n_cluster <= $\sqrt{n\_samples}$. Default: 20.
-    - **noise_scale**: The scale of gaussian noise added to generate variational versions of the manifold. Default: 0.2.
-    - **elbow_k_range**: The range of constrained cluster numbers used by the elbow method to determine the optimal cluster count. Default: 11.
- - **data**: A NumPy array or matrix where rows correspond to samples and columns correspond to features.
-
 ```python
 import sonata
 sn = sonata.sonata(params)
 ambiguous_labels, ambiguous_idx = sn.diagnose(data)
 ```
+
+Input for SONATA: 
+ - **params**: A dictionary containing the following keys:
+    - **scot_k**, **scot_e**, **scot_mode**, **scot_metric**: Parameters for manifold aligners. Refer to the SCOT tutorial for guidance on setting these parameters.
+    - **n_cluster**:Number of cell groups used in hierarchical clustering to achieve a smooth and efficient spline fit. Recommended: n_cluster <= $\sqrt{n\_samples}$. Default: 20.
+    - **noise_scale**: The scale of gaussian noise added to generate variational versions of the manifold. Default: 0.2.
+    - **pval_thres**: Threshold value for p-value thresholding. Default: 1e-2.
+    - **elbow_k_range**: The range of constrained cluster numbers used by the elbow method to determine the optimal cluster count. Default: 11.
+ - **data**: A NumPy array or matrix where rows correspond to samples and columns correspond to features.
+
 For an example, please refer to the cfg file under folder *examples/cfgs*.
 
 

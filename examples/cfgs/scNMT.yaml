@@ -1,0 +1,19 @@
+data_url1: "Paccessibility_300.txt"
+data_url2: "Pmethylation_300.txt"
+label_url1: "type1.txt"
+label_url2: "type2.txt"
+data_path: "../data/scNMT"
+save_dir: "../results/sonata_pipeline/scNMT"
+norm: False
+sort: False
+
+scot_k: 50
+scot_e: 1.0e-3
+scot_mode: "distance"
+scot_metric: "euclidean"
+
+n_cluster: 25
+noise_scale: 0.1
+repeat: 10
+n_neighbor: 10
+pval_thres: 1.0e-2

@@ -18,6 +18,25 @@ class sonata(object):
         ambiguous_labels, ambiguous_idx = sn.diagnose(data)
     
     For more examples, refer to the examples folder.
+    
+    params: 
+        A dictionary containing the following keys:
+        - **scot_k**, **scot_e**, **scot_mode**, **scot_metric**: 
+            Parameters for manifold aligners. Refer to the SCOT tutorial for guidance on setting these parameters.
+        - **n_cluster**: 
+            Number of cell groups used in hierarchical clustering to achieve a smooth and efficient spline fit. Recommended: n_cluster <= $\sqrt{n\_samples}$. Default: 20.
+        - **noise_scale**: 
+            The scale of gaussian noise added to generate variational versions of the manifold. Default: 0.2.
+        - **pval_thres**: 
+            Threshold value for p-value thresholding. Default: 1e-2.
+        - **elbow_k_range**: 
+            The range of constrained cluster numbers used by the elbow method to determine the optimal cluster count. Default: 11.
+        - **n_neighbor**: 
+            Number of neighbors when constructing noise manifold. Default: 10.  
+
+    data: 
+        A NumPy array or matrix where rows correspond to samples and columns correspond to features.    
+        
     """
     def __init__(self, params: dict) -> None:
         self.scot_k = params.get("scot_k", 10)
@@ -47,7 +66,7 @@ class sonata(object):
 
         return diagnose_result
 
-    
+   
     def noise_alignment(self, data, refresh=False, save_dir=None):    
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
@@ -293,6 +312,86 @@ class sonata(object):
         )
 
         return result
+
+
+    def diagnose_by_groups(self, data, save_dir=None, refresh=False):
+        """This function is similar to the `diagnose` function but first groups the coupling matrices 
+            before diagnosing ambiguity using the SONATA method.
+        """
+        self.clust_labels = h_clustering(data, self.n_cluster)
+        
+        # step 1: generate mapping data if not exists
+        if not os.path.exists(save_dir): os.makedirs(save_dir)
+        coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
+        os.makedirs(coupling_iters_path, exist_ok=True)
+        
+        if (refresh==True) or not (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
+            np.seterr(under='ignore')
+            for iter in range(self.repeat):
+                self.noise_alignment_scot(data, save_url = os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
+        
+        # step2: group coupling matrices       
+        coupling_clusters = self.group_couplings(self.repeat, data.shape[0], coupling_iters_path)
+        # find the diagonal cluster
+        best_cluster = self.search_best_diagonal(coupling_clusters, data, save_dir)
+        
+        group_diagnose_result = []
+        for cluster, repeats in coupling_clusters.items():
+            if best_cluster == cluster: 
+                continue
+            else:
+                repeats_total = list(repeats) + list(coupling_clusters[best_cluster])
+                
+            # denoising coupling matrices for each group
+            mat_dict = self.denoise_coupling(data, load_path=save_dir, repeat=repeats_total)
+            outlier_pairs = self.get_outlier(mat_dict)
+            diagnose_result = self.find_ambiguous_groups(data, outlier_pairs)      
+            
+            group_diagnose_result.append(diagnose_result)
+                    
+        return group_diagnose_result
+ 
+    def group_couplings(self, repeat, N, coupling_iters_path, k_clusters=0):
+        coupling_iters = np.empty(shape=(repeat, N*N))
+        for iter in range(repeat):
+            print("---------------Coupling Denoising Iter={}--------------".format(iter))
+            print("Load_path = {}".format(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt")))
+            coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))  
+            coupling_iters[iter, :] = coupling.reshape(-1)
+            
+        ## grouping couplings by clustering
+        if k_clusters == 0:
+            ncluster_range=range(2, 10)
+            yscore = silhouette_score_elbow(coupling_iters, ncluster_range)
+            max_k= np.argmax(np.array(yscore)) + 2
+
+            clustering = KMeans(n_clusters=max_k).fit(coupling_iters)
+            if self.verbose:
+                print("N clusters found by the algorithm = {}".format(clustering.n_clusters))
+        else: 
+            clustering = KMeans(n_clusters=k_clusters).fit(coupling_iters)
+
+        if self.verbose:
+            print("Cluster labels = {}".format(clustering.labels_))
+
+        clust_label_dic = {}
+        for label in clustering.labels_:
+            clust_label_dic[label] = np.where(clustering.labels_==label)[0]   
+        
+        return clust_label_dic   
+
+    def search_best_diagonal(self, coupling_clusters, data, load_path):
+        best_s = 0
+        best_cluster = None
+        for cluster, repeats in coupling_clusters.items():
+            mat_dict = self.denoise_coupling(data, load_path=load_path, repeat=repeats)
+            coupling_mat = mat_dict['coupling_mat']
+            
+            s = check_diagonal_score(coupling_mat)
+            if s > best_s:
+                best_s = s
+                best_cluster = cluster
+        return best_cluster
     
 
 def map_ambiguous_groups(data, ambiguous_labels, ambiguous_idx):
