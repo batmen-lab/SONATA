@@ -7,7 +7,31 @@ Source code for **SONATA: Disambiguated manifold alignment of single-cell data**
 Dependencies for **SONATA** are recorded in *requirements.txt*.  
 
 ## Data
-Datasets are available at [this link](https://drive.google.com/drive/folders/1YWvcBaJ-yj76OjkcMz8cfKchKwuJmkGV?usp=sharing).
+The datasets used in this project are available for download at the following link: [data](https://drive.google.com/drive/folders/1YWvcBaJ-yj76OjkcMz8cfKchKwuJmkGV?usp=sharing).  
+To reproduce the exact results presented in the manuscript, you can download the result files here:[results](https://drive.google.com/drive/folders/1Xc2blb8Qg06cUsaT_KsEQW6_CJ3RQ5yR?usp=sharing).  
+
+Then organize the project as follows:
+
+```
+project_root/
+├── src/
+│   ├── run_baselines/
+│   ├── utils/
+│   └── sonata.py
+├── examples/
+│   ├── cfgs/
+│   ├── simulation_t_branch.ipynb
+│   └── ...
+├── data/
+│   ├── t_branch/
+│   └── ...
+├── results/
+│   ├── sonata_pipeline
+│   ├── ├── t_branch/
+│   └── └── ...
+├── README.md
+└── requirements.txt
+```
 
 ## Baseline Performance
 All baseline method tests are implemented in the folder *src/run_baselines*. To run a test, use the following commands:
@@ -17,7 +41,7 @@ python run_baselines/run_unioncom.py --dataset t_branch
 ```
 
 ## Examples
-Jupyter notebooks to replicate the results from the manuscript are available under folder *examples*:  
+Jupyter notebooks to replicate the SONATA results from the manuscript are available under folder *examples*:  
 - Simulation datasets
     - partial ambiguous: [simulation_t_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_t_branch.ipynb), [simulation_y_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_y_branch.ipynb), [simulation_x_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_x_branch.ipynb)
     - no ambiguous: [simulation_decay_path.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_decay_path.ipynb)
