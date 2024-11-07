@@ -328,6 +328,67 @@ def run_mmdma(data1, data2, label1, label2, links, params, lambda_range, seed_ra
           with open(acc_log_url, 'a') as f: f.write(f'lbd1{lbd1}_lbd2{lbd2}_seed{seed}\t{acc}\n')    
           with open(foscttm_log_url, 'a') as f: f.write(f'lbd1{lbd1}_lbd2{lbd2}_seed{seed}\t{foscttm}\n')   
 
+def mmdma_case(data1, data2, lambda1, lambda2, seed, epoch=5000, sigma=0.0, nfeat=4, kernel="linear"):  
+    """ 
+      For baseline ambiguous cases under folder **examples/baselines/**
+      
+    """
+    print("Number of dimensions of latent space...", nfeat) # number features in joint embedding
+    sigmas = torch.FloatTensor([sigma]).to(device)
+    Ip = np.identity(nfeat).astype(np.float32)          #identity matrix of size nfeatxnfeat
+    
+    K1 = torch.from_numpy(input_kernel(data1, type=kernel)).float().to(device)
+    K2 = torch.from_numpy(input_kernel(data2, type=kernel)).float().to(device)
+    I_p = torch.from_numpy(Ip).to(device) 
+
+    lbd1 = lambda1
+    lbd2 = lambda2
+              
+    obj_val=[]
+    mmd_val=[]
+    pen_val=[]
+    dist_val=[]
+    
+    model = manifold_alignment(nfeat, data1.shape[0], data2.shape[0], seed)
+    model = model.to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(),lr=0.0005,amsgrad=True)
+
+    model.train()
+
+    for i in range(epoch + 1): #Training takes place for 10,000 iterations
+    
+        optimizer.zero_grad()
+
+        mmd, penalty, distortion, sigmas = model(K1, K2, I_p, sigmas, lbd1, lbd2)
+        obj = mmd + penalty + distortion
+
+        obj.backward()
+
+        optimizer.step()
+        
+        obj_value = obj.data.item()
+        mmd_value = mmd.data.item()
+        pen_value = penalty.data.item()
+        dist_value = distortion.data.item()
+    
+        if mmd_value > 0 : 
+            obj_val.append(math.log(obj_value))
+            mmd_val.append(math.log(mmd_value))
+            pen_val.append(math.log(pen_value))
+            dist_val.append(math.log(dist_value))
+
+        if (i%200 == 0 or i==epoch): # the weights can be saved every 200 iterations
+            weights=[]
+        
+            for p in model.parameters():
+                if p.requires_grad:
+                    weights.append(p.data)
+    
+    data1_new = torch.matmul(K1, weights[0]).cpu().numpy()
+    data2_new = torch.matmul(K2, weights[1]).cpu().numpy()
+    mapping = nearestk_mapping_symmetric(data1_new, data2_new, k=3)
+    return data1_new, data2_new, mapping
 
 def main(args):
     with open("./run_baselines/baseline.yaml", "r") as file:

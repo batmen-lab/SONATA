@@ -8,7 +8,7 @@ Dependencies for **SONATA** are recorded in *requirements.txt*.
 
 ## Data
 The datasets used in this project are available for download at the following link: [data](https://drive.google.com/drive/folders/1YWvcBaJ-yj76OjkcMz8cfKchKwuJmkGV?usp=sharing).  
-To reproduce the exact results presented in the manuscript, you can download the result files here:[results](https://drive.google.com/drive/folders/1Xc2blb8Qg06cUsaT_KsEQW6_CJ3RQ5yR?usp=sharing).  
+To reproduce the exact results presented in the manuscript, you can download the result files here: [results](https://drive.google.com/drive/folders/1Xc2blb8Qg06cUsaT_KsEQW6_CJ3RQ5yR?usp=sharing).  
 
 Then organize the project as follows:
 
@@ -34,13 +34,21 @@ project_root/
 ```
 
 ## Baseline Performance
-All baseline method tests are implemented in the folder *src/run_baselines*. To run a test, use the following commands:
+We demonstrate that artificial integrations resulting from ambiguous mapping in diagonal data integration are widespread yet surprisingly overlooked, occurring across all mainstream diagonal integration methods.
+The following notebooks show the performance cases of baseline methods on various ambiguous datasets:
+ - t_branch: [t_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/baselines/t_branch.ipynb)
+ - scGEM: [scGEM.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/baselines/scGEM.ipynb)
+ - SNARE: [SNARE.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/baselines/SNARE.ipynb)
+ - scNMT: [scNMT.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/baselines/scNMT.ipynb)
+
+To quantify the ambiguity in these cases, we report label transfer accuracy and average FOSCTTM metrics in our manuscript. All baseline method tests are implemented in the folder *src/run_baselines*. To run a test, use the following commands:
 ```python
 cd src
 python run_baselines/run_unioncom.py --dataset t_branch
 ```
+We argue that artificial integrations are more harmful than failed integrations because, while failed integrations can be qualitatively recognized, artificial integrations are difficult to detect and can mislead users into pursuing hypotheses based on erroneous results.
 
-## Examples
+## SONATA Examples
 Jupyter notebooks to replicate the SONATA results from the manuscript are available under folder *examples*:  
 - Simulation datasets
     - partial ambiguous: [simulation_t_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_t_branch.ipynb), [simulation_y_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_y_branch.ipynb), [simulation_x_branch.ipynb](https://github.com/batmen-lab/SONATA/blob/main/examples/simulation_x_branch.ipynb)
