@@ -1,5 +1,5 @@
 # SONATA
-Source code for **SONATA: Disambiguated manifold alignment of single-cell data**  
+Source code for **Securing diagonal integration of multimodal single-cell data against ambiguous mapping**  
 
 ![SONATA](images/overview.jpg)
 
