@@ -101,12 +101,12 @@ def main(args):
     with open("./cfgs/t_branch.yaml", "r") as file:
             params = yaml.safe_load(file)
     
-    if args.method == "sonata":
-        test_sonata(params, args.output_path, args.data_path, args.n_cells, scale_sample_rate=args.scale_sample_rate)
-    else:
-        test_baselines(params, args.output_path, args.data_path, args.n_cells, args.method)
+    # if args.method == "sonata":
+    #     test_sonata(params, args.output_path, args.data_path, args.n_cells, scale_sample_rate=args.scale_sample_rate)
+    # else:
+    #     test_baselines(params, args.output_path, args.data_path, args.n_cells, args.method)
 
-    # plot_scalability(fpath=f"{args.output_path}/diagnose_baselines_log_all.txt", output_path=args.output_path)
+    plot_scalability(fpath=f"{args.output_path}/diagnose_baselines_log_all.txt", output_path=args.output_path)
     
 
 if __name__ == "__main__":

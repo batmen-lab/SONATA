@@ -22,10 +22,15 @@ from sklearn.decomposition import PCA
 import torch.backends.cudnn as cudnn
 cudnn.benchmark = True
 
-from unioncom.visualization import visualize
-from unioncom.Model import model
-from unioncom.utils import *
-from unioncom.test import *
+# from unioncom.visualization import visualize
+# from unioncom.Model import model
+# from unioncom.utils import *
+# from unioncom.test import *
+
+from .visualization import visualize
+from .Model import model
+from .utils import *
+from .test import *
 
 class UnionCom(object):
 

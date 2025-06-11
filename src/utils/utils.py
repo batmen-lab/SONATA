@@ -3,15 +3,19 @@ import scipy.sparse as sp
 from collections import Counter
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.neighbors import kneighbors_graph
-from scipy.sparse.csgraph import dijkstra, connected_components
+from sklearn.isotonic import IsotonicRegression
 from sklearn.neighbors import kneighbors_graph, NearestNeighbors
 from sklearn.metrics import silhouette_score
+import scipy
 from scipy.sparse import csr_matrix
 from scipy.spatial.distance import cdist
-from pygam import LinearGAM, s
+from scipy.sparse.csgraph import dijkstra, connected_components
 from scipy.interpolate import UnivariateSpline
-from sklearn.isotonic import IsotonicRegression
-import scipy
+from scipy.stats import pearsonr
+from scipy.optimize import minimize_scalar
+from pygam import LinearGAM, s
+import random
+import os
 
 def load_data(matrix_file):
     file_type = matrix_file.split('.')[-1]
@@ -44,6 +48,44 @@ def sorted_by_label(data, label):
 
     return sorted_data, sorted_label, sorted_indices
 
+def set_seed(seed=42):
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+
+def auto_noise_scale(data, target_corr=0.85):
+    def objective(noise, target_corr=target_corr):
+        corr = compare_manifold(data, noise)
+        return abs(corr - target_corr)
+    result = minimize_scalar(objective, bounds=(0.0, 1.0), method='bounded')
+
+    optimal_noise = result.x 
+    return  optimal_noise    
+
+def compare_manifold(data, noise_scale, k, metric='euclidean', mode='distance'):
+    include_self=True if mode=="connectivity" else False
+    graph = kneighbors_graph(data, n_neighbors=k, mode=mode, metric=metric, include_self=include_self)
+    
+    stds = data.std(axis=0)
+    data1 = data + np.random.normal(loc=0.0, scale=stds * noise_scale, size=data.shape)
+    noisy_graph = kneighbors_graph(data1, n_neighbors=k, mode=mode, metric=metric, include_self=include_self)
+
+    # manifold constructions
+    original_distances = init_distances(graph)
+    noisy_distances = init_distances(noisy_graph)
+
+    # Calculate Pearson and Spearman correlations
+    pearson_corr, _ = pearsonr(original_distances.flatten(), noisy_distances.flatten())
+    return pearson_corr
+
+def noise_range_test(data, n_neighbor, mode, metric, target_corr=0.8):
+    x_range = np.arange(0.1, 1.01, 0.1)
+    y_corr = []
+    for noise in x_range:
+        score = compare_manifold(data, noise, k=n_neighbor, mode=mode, metric=metric)
+        y_corr.append(score)
+    selected_noise = x_range[np.array(y_corr) > target_corr][-1]
+    return y_corr, round(selected_noise, 1)
 
 def h_clustering(data_mat, n_cluster):
     clustering = AgglomerativeClustering(n_clusters=n_cluster, affinity='euclidean').fit(data_mat)
@@ -81,6 +123,43 @@ def add_neighbors(graph, two_hop, n_neighbor=2):
                 n += 1
             if n >= n_neighbor: break
 
+    dila_links = np.asarray(dila_links)
+    return graph, dila_links
+
+def get2hop_fast(data, mode, metric, k):
+    include_self = mode == "connectivity"
+    graph = kneighbors_graph(data, k, mode=mode, metric=metric, include_self=include_self).tolil()
+
+    graph_squared = graph @ graph  # return CSR
+    graph_squared = graph_squared.tolil()
+
+    two_hop = {}
+    for i in range(graph.shape[0]):
+        direct_neighbors = set(graph.rows[i])  # 1hop neighbors
+        direct_neighbors.discard(i)  # remove itself
+        
+        i2hop = {}
+        for v in graph_squared.rows[i]:
+            if v != i and v not in direct_neighbors and v not in graph.rows[i]: # discard itself and 1-hop neighbors
+                i2hop[v] = graph_squared[i, v]
+        
+        two_hop[i] = i2hop
+
+    return graph, two_hop
+
+def add_neighbors_fast(graph, two_hop, n_neighbor=2):
+    dila_links = []
+    for k, candidates_dict in two_hop.items():
+        i2hop_nodes = list(candidates_dict.keys())
+        np.random.shuffle(i2hop_nodes)
+        added = 0
+        for v in i2hop_nodes:
+            if graph[k, v] == 0:
+                dila_links.append((k, v))
+                graph[k, v] = candidates_dict[v]
+                added += 1
+            if added >= n_neighbor:
+                break
     dila_links = np.asarray(dila_links)
     return graph, dila_links
 
@@ -219,17 +298,17 @@ def add_missingness(clust_mats, add_lists, n_bin=30, fit_type="nondec_spline"):
         
     return (avg_dist_list, avg_coupling_list, clust_pair_list)
 
+def second_grad(k_arr, step):
+    # first grad
+    first_grad = (k_arr[1:] - k_arr[:-1])/step 
+    # 2nd grad
+    second_grad = (first_grad[1:] - first_grad[:-1])/(1+first_grad[1:]*first_grad[:-1])
+    second_grad = np.arctan(np.abs(second_grad))
+    return second_grad
+    
 
 def elbow_k(data, cannot_link, k_range = 10):
     from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
-    
-    def _second_grad(k_arr, step):
-        # first grad
-        first_grad = (k_arr[1:] - k_arr[:-1])/step 
-        # 2nd grad
-        second_grad = (first_grad[1:] - first_grad[:-1])/(1+first_grad[1:]*first_grad[:-1])
-        second_grad = np.arctan(np.abs(second_grad))
-        return second_grad
     
     cl_arr = np.transpose(np.array(cannot_link))
     print("cannot_link shape={}\ndata_shape = {}".format(len(cannot_link), data.shape))
@@ -255,7 +334,7 @@ def elbow_k(data, cannot_link, k_range = 10):
     x_step = 1 / data.shape[0]
 
     # choose the best k by 2nd derivative
-    best_k = np.argmax(_second_grad(y_error, step = x_step)) + 2
+    best_k = np.argmax(second_grad(y_error, step = x_step)) + 2
 
     
     return best_k, y_error, x_step
@@ -325,6 +404,13 @@ def silhouette_score_elbow(coupling_iters, ncluster_range=range(2, 10), metric='
         labels = clustering.labels_
         sil.append(silhouette_score(coupling_iters, labels, metric=metric))
     return sil
+
+def inertias_elbow(coupling_iters, ncluster_range=range(1, 10)):
+    inertias = []
+    for k in ncluster_range:
+        clustering = KMeans(n_clusters=k).fit(coupling_iters)
+        inertias.append(clustering.inertia_)
+    return inertias
 
 def check_diagonal_score(coupling_mat):
     N, N = coupling_mat.shape

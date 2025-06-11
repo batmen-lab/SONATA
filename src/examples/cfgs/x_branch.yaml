@@ -1,0 +1,17 @@
+data_url1: "domain1.txt"
+data_url2: "domain2.txt"
+label_url1: "label_domain1.txt"
+label_url2: "label_domain2.txt"
+data_path: "../../data/x_branch"
+save_dir: "../../results/sonata_pipeline/x_branch"
+norm: False
+sort_label: False
+
+noise_scale: 0.2
+n_neighbor: 10
+e: 0.001
+mode: "distance"
+metric: "euclidean"
+n_cluster: 17
+repeat: 20
+pval_thres: 1.0e-2

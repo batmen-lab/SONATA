@@ -83,7 +83,7 @@ def main(args):
         data1 = normalize(data1, norm=params["norm"])
         data2 = normalize(data2, norm=params["norm"])
 
-    if params["sort"]:
+    if params["sort_label"]:
         data1, label1, sorted_indices1 = sorted_by_label(data1, label1)
         data2, label2, sorted_indices2 = sorted_by_label(data2, label2)
 

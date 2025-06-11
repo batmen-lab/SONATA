@@ -1,0 +1,19 @@
+data_url1: "SNAREseq_atac_feat.npy"
+data_url2: "SNAREseq_rna_feat.npy"
+label_url1: "SNAREseq_atac_types.txt"
+label_url2: "SNAREseq_rna_types.txt"
+data_path: "../../data/SNARE"
+save_dir: "../../results/sonata_pipeline/SNARE"
+norm: "l2"
+sort_label: True
+
+noise_scale: 0.2
+n_neighbor: 10
+e: 1.0e-3
+mode: "connectivity"
+metric: "correlation"
+n_cluster: 20
+repeat: 10
+pval_thres: 1.0e-2
+
+scot_k: 110

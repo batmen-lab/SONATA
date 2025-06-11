@@ -1,0 +1,20 @@
+data_url1: "scGEM_expression.csv"
+data_url2: "scGEM_methylation.csv"
+label_url1: "scGEM_typeExpression.txt"
+label_url2: "scGEM_typeMethylation.txt"
+data_path: "../../data/scGEM"
+save_dir: "../../results/sonata_pipeline/scGEM"
+norm: "l2"
+sort_label: False
+
+
+noise_scale: 0.3
+n_neighbor: 10
+e: 5.0e-3
+mode: "connectivity"
+metric: "correlation"
+n_cluster: 13
+repeat: 10
+pval_thres: 1.0e-2
+
+scot_k: 35

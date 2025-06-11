@@ -1,11 +1,13 @@
 import os, argparse, ot
 import numpy as np
 from sklearn.preprocessing import normalize
-from sklearn.neighbors import kneighbors_graph, NearestNeighbors
+from sklearn.neighbors import kneighbors_graph
 from utils.utils import *
 from utils.vis import *
 import itertools
 from types import SimpleNamespace
+from tqdm import tqdm
+from quantizedGW import *
 
 class sonata(object):
     """
@@ -14,94 +16,147 @@ class sonata(object):
     
     Input for SONATA: data in form of numpy arrays/matrices, where the rows correspond to samples and columns correspond to features.
     Basic Usage: 
-        sn = sonata.sonata(params)
-        ambiguous_labels, ambiguous_idx = sn.diagnose(data)
+        sn = sonata.sonata(noise_scale=0.2, k=10)
+        DiagnoseResult = sn.diagnose(data)
+    
+        If you want to save the intermediate OT results, you can specify a save_dir:
+        DiagnoseResult = sn.diagnose(data, save_dir="path/to/save_dir")
     
     For more examples, refer to the examples folder.
     
     params: 
-        A dictionary containing the following keys:
-        - **scot_k**, **scot_e**, **scot_mode**, **scot_metric**: 
-            Parameters for manifold aligners. Refer to the SCOT tutorial for guidance on setting these parameters.
-        - **n_cluster**: 
-            Number of cell groups used in hierarchical clustering to achieve a smooth and efficient spline fit. Recommended: n_cluster <= $\sqrt{n\_samples}$. Default: 20.
         - **noise_scale**: 
             The scale of gaussian noise added to generate variational versions of the manifold. Default: 0.2.
+        - **n_neighbor**: 
+            Number of neighbors when constructing noise manifold. Default: 10.  
+        - **mode**:
+            Mode for constructing the graph. Options: "connectivity" or "distance". Default: "connectivity".
+        - **metric**:
+            Metric to use for distance computation. Default: "correlation".
+        - **e**:
+            Coefficient of the entropic regularization term in the objective function of OT formulation. Default: 1e-3.
+        - **repeat**:
+            Number of iterations for alignment. Default: 10.
+        - **n_cluster**: 
+            Number of cell groups used in hierarchical clustering to achieve a smooth and efficient spline fit. Recommended: n_cluster <= $\sqrt{n\_samples}$. Default: 20.
         - **pval_thres**: 
             Threshold value for p-value thresholding. Default: 1e-2.
         - **elbow_k_range**: 
-            The range of constrained cluster numbers used by the elbow method to determine the optimal cluster count. Default: 11.
-        - **n_neighbor**: 
-            Number of neighbors when constructing noise manifold. Default: 10.  
+            The range of constrained cluster numbers used by the elbow method to determine the optimal cluster count. Default: 11.            
+        - **scalableOT**:
+            If True, uses the scalable version of OT. Default: False.
+        - **scale_sample_rate**:
+            The sample rate for the scalable version of OT. Default: 0.1.
+        - **verbose**:
+            If True, prints the progress of the algorithm. Default: True.
 
     data: 
         A NumPy array or matrix where rows correspond to samples and columns correspond to features.    
+    
+    return:
+        An object of SimpleNamespace containing the following attributes:
+        - ambiguous_labels: A numpy array of ambiguous group labels for ambiguous samples.
+        - ambiguous_idx: A numpy array of indices of ambiguous samples.
+        - cannot_links: A list of ambiguous sample pairs.
         
     """
-    def __init__(self, params: dict) -> None:
-        self.scot_k = params.get("scot_k", 10)
-        self.scot_e = params.get("scot_e", 1e-3)
-        self.scot_mode = params.get("scot_mode", "distance")
-        self.scot_metric = params.get("scot_metric", "euclidean")
+    def __init__(self, noise_scale=0.2, n_neighbor=10, e=1e-3, mode="connectivity", metric="correlation", repeat=10, n_cluster=20,
+                 elbow_k_range=11, pval_thres=1e-2, scalableOT=False, scale_sample_rate=0.1, seed=42, verbose=True) -> None:
+        self.noise_scale = noise_scale
+        self.n_neighbor = n_neighbor
+        self.e = e
+        self.mode = mode
+        self.metric = metric
         
-        self.repeat = params.get("repeat", 10)
-        self.n_cluster = params.get("n_cluster", 20)
-        self.noise_scale = params.get("noise_scale", 0.2)
-        self.n_neighbor = params.get("n_neighbor", 10)
-        self.elbow_k_range = params.get("elbow_k_range", 11)
-        self.pval_thres = params.get("pval_thres", 1e-2)
+        self.repeat = repeat
+        self.n_cluster = n_cluster
+        self.elbow_k_range = elbow_k_range
+        self.pval_thres = pval_thres
         
-        self.verbose = params.get("verbose", True)
-        
+        self.verbose = verbose
+        self.scalableOT = scalableOT
+        self.scale_sample_rate = scale_sample_rate
+        self.seed = seed
+
         self.clust_labels = None
         self.spline_data = None
+        
+        if self.verbose:
+            print("===========================")
+            print("n_neighbor={}, noise_scale={}, scaleOT = {}".format(
+                self.n_neighbor, self.noise_scale, self.scalableOT))
 
     def diagnose(self, data, save_dir=None):
+        set_seed(self.seed)
         self.clust_labels = h_clustering(data, self.n_cluster)
         
         # sonata pipeline
         mat_dict = self.noise_alignment(data, save_dir=save_dir)
         outlier_pairs = self.get_outlier(mat_dict)
-        diagnose_result = self.find_ambiguous_groups(data, outlier_pairs)             
-
+        diagnose_result = self.find_ambiguous_groups(data, outlier_pairs)          
+                          
         return diagnose_result
-
    
-    def noise_alignment(self, data, refresh=False, save_dir=None):    
-        if not os.path.exists(save_dir): os.makedirs(save_dir)
-        coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
-        os.makedirs(coupling_iters_path, exist_ok=True)
+    def noise_alignment(self, data, refresh=True, save_dir=None):
+        if save_dir:
+            if not os.path.exists(save_dir): os.makedirs(save_dir)
+            coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
+            os.makedirs(coupling_iters_path, exist_ok=True)
         
-        if (refresh==True) or not (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
-            np.seterr(under='ignore')
+        if (refresh==False) and (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
+            assert save_dir is not None, "Please provide a save_dir to load the coupling matrices."
+            coupling_list = []
             for iter in range(self.repeat):
-                print("---------------SCOT Alignment Iter={}--------------".format(iter))
-                self.noise_alignment_scot(data, save_url = os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
-        
-        mat_dict = self.denoise_coupling(data, load_path=save_dir, repeat=range(self.repeat))
+                coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
+                coupling_list.append(coupling)
+        else:
+            np.seterr(under='ignore')
+            coupling_list = []
+            for iter in tqdm(range(self.repeat)):
+                if self.verbose: print("---------------OT Alignment Iter={}--------------".format(iter))
+                
+                coupling = self.noise_alignment_ot(data)
+                coupling_list.append(coupling)  
+                
+                if save_dir:
+                    np.savetxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"), coupling)
+                
+        mat_dict = self.denoise_coupling(data, coupling_list, repeat=range(self.repeat))
         return mat_dict
-     
-    def noise_alignment_scot(self, data, save_url):
-        include_self=True if self.scot_mode=="connectivity" else False
-        
-        # + noise1: neighborhood noise        
-        graph1 = kneighbors_graph(data, n_neighbors=self.n_neighbor, mode='distance', metric='euclidean')
-        data1 = data + np.random.normal(loc=0.0, scale=np.mean(graph1.data)*self.noise_scale, size=data.shape)
-        Xgraph = kneighbors_graph(data1, n_neighbors=self.n_neighbor, mode=self.scot_mode, metric=self.scot_metric, include_self=include_self)
+    
+    def noise_alignment_ot(self, data):
+        include_self=True if self.mode=="connectivity" else False
 
+        # + noise1: neighborhood noise               
+        stds = data.std(axis=0)
+        noise = np.random.normal(loc=0.0, scale=stds * self.noise_scale, size=data.shape)
+        data1 = data + noise
+        Xgraph = kneighbors_graph(data1, n_neighbors=self.n_neighbor, mode=self.mode, metric=self.metric, include_self=include_self)
         # + noise2: add n 2hop neighbors        
-        graph, two_hop = get2hop(data, mode=self.scot_mode, metric=self.scot_metric, k=self.n_neighbor)
-        Ygraph, _ = add_neighbors(graph.copy(), two_hop, n_neighbor = self.n_neighbor)
-        
-        # SCOT alignment
+        graph, two_hop = get2hop_fast(data, mode=self.mode, metric=self.metric, k=self.n_neighbor)
+        Ygraph, _ = add_neighbors_fast(graph.copy(), two_hop, n_neighbor = self.n_neighbor)
+        # graph, two_hop = get2hop(data, mode=self.mode, metric=self.metric, k=self.n_neighbor)
+        # Ygraph, _ = add_neighbors(graph.copy(), two_hop, n_neighbor = self.n_neighbor)
+    
+        # build graph
         Cx = init_distances(Xgraph)
         Cy = init_distances(Ygraph)
-        coupling, _= ot.gromov.entropic_gromov_wasserstein(Cx, Cy, p=ot.unif(data.shape[0]), q=ot.unif(data.shape[0]), 
-                                                                loss_fun='square_loss', epsilon=self.scot_e, log=True, verbose=True)
-        
-        np.savetxt(save_url, coupling)
+           
+        if self.scalableOT:
+            ## a scalable version: quantizedGW
+            node_subset1 = list(set(sample(list(range(data.shape[0])), int(self.scale_sample_rate*len(data)))))    
+            node_subset2 = list(set(sample(list(range(data.shape[0])), int(self.scale_sample_rate*len(data))))) 
+            coupling = compressed_gw(Cx,Cy,p1=ot.unif(data.shape[0]),p2=ot.unif(data.shape[0]),
+                                                node_subset1=node_subset1,node_subset2=node_subset2,
+                                                verbose = True,return_dense = True)
+        else:
+            coupling, _= ot.gromov.entropic_gromov_wasserstein(Cx, Cy, p=ot.unif(data.shape[0]), q=ot.unif(data.shape[0]), 
+                                                                    loss_fun='square_loss', epsilon=self.e, log=True, verbose=self.verbose)
+    
 
-    def denoise_coupling(self, data, load_path, repeat=[]):
+        return coupling
+
+    def denoise_coupling(self, data, coupling_list, repeat=[]):
         N, P = data.shape
         dist_mat = np.zeros((N, N))
         coupling_mat = np.zeros((N, N)) 
@@ -110,12 +165,10 @@ class sonata(object):
         ordered_clust_label = unq_clust_label[np.argsort(unq_clust_label_idx)]
         freq_mat = np.zeros((len(unq_clust_label), len(unq_clust_label)))
 
-        coupling_iters_path = os.path.join(load_path, 'coupling_iters')
-
         for iter in repeat:
-            print("---------------Coupling Denoising Iter={}--------------".format(iter))
-            print("Load_path = {}".format(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt")))
-            coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
+            if self.verbose: print("---------------Coupling Denoising Iter={}--------------".format(iter))
+            
+            coupling = coupling_list[iter]
 
             ## denoise
             # 1. set coupling < average = 0
@@ -128,7 +181,7 @@ class sonata(object):
             coupling_mat += coupling 
 
         # calculate distance mat
-        graph, _ = get2hop(data, self.scot_mode, self.scot_metric, k=self.n_neighbor)
+        graph, _ = get2hop(data, self.mode, self.metric, k=self.n_neighbor)
         dist_mat = init_distances(graph) 
 
         # avg cluster-wise coupling & Cx matrix
@@ -215,10 +268,9 @@ class sonata(object):
     
             ## P-value Calculation: left lowest_idx nodes as neighbors for node i, one-tail test
             p_values = p_value(res, currX, lowest_idx, geo_thres)
-
             indices = np.where(p_values <= self.pval_thres)[0]
-            if self.verbose:
-                print("Outlier cluster indices={}".format(indices))
+            
+            if self.verbose: print("Outlier cluster indices={}".format(indices))
 
             if len(indices) > 0:
                 outlier_indices = include_indices[indices]
@@ -227,14 +279,14 @@ class sonata(object):
 
                 include_indices = np.setdiff1d(include_indices, outlier_indices)
                 exclude_indices = np.union1d(exclude_indices, outlier_indices)
-                if self.verbose:
-                    print("iter={}\tinclude_indices={}\texclude_indices={}".format(iter, include_indices, exclude_indices))
+                
+                if self.verbose: print("iter={}\tinclude_indices={}\texclude_indices={}".format(iter, include_indices, exclude_indices))
             else:
                 is_outliers = False
 
             iter +=1
-        if self.verbose:
-            print("length of include_indices={}\texclude_indices={}".format(len(include_indices), len(exclude_indices)))
+            
+        if self.verbose: print("length of include_indices={}\texclude_indices={}".format(len(include_indices), len(exclude_indices)))
         
         self.spline_data = SimpleNamespace(
             spline_dist = avg_dist_list,
@@ -242,7 +294,8 @@ class sonata(object):
             spline_x = currX,
             spline_y = newY,
             exclude_indices = exclude_indices,
-            include_indices = include_indices,            
+            include_indices = include_indices,   
+            clust_pair_list = clust_pair_list,         
         )
 
         return clust_pair_list[exclude_indices]
@@ -254,7 +307,6 @@ class sonata(object):
         code: https://github.com/datamole-ai/active-semi-supervised-clustering
         '''
         from active_semi_clustering.semi_supervised.pairwise_constraints import PCKMeans
-        # TODO: makesure the return type
         if len(exclude_clust_pairs) == 0:
             result = SimpleNamespace(
                 ambiguous_labels=np.array([], dtype=int), 
@@ -281,15 +333,16 @@ class sonata(object):
         cannot_links = np.vstack(cannot_links).tolist()
 
         # group ambiguous nodes  -- elbow method to choose k
-        print('deciding best k for clustering ...')
+        if self.verbose: print('deciding best k for clustering ...')
+        
         if K == None:
             K, y_error, x_step = elbow_k(ambiguous_data, cannot_links, k_range=self.elbow_k_range)
-            if self.verbose:
-                print('K = {} groups choosen by elbow method'.format(K))
             
-        clusterer = PCKMeans(n_clusters=K)
-        clusterer.fit(ambiguous_data, cl=cannot_links)
-        labels = np.asarray(clusterer.labels_, dtype=int)
+            if self.verbose: print('K = {} groups choosen by elbow method'.format(K))
+            
+        cluster = PCKMeans(n_clusters=K)
+        cluster.fit(ambiguous_data, cl=cannot_links)
+        labels = np.asarray(cluster.labels_, dtype=int)
     
         ambiguous_labels = np.empty_like(labels)
         for clust_label in np.unique(self.clust_labels[ambiguous_idx]):
@@ -302,8 +355,8 @@ class sonata(object):
         for class_label in np.unique(ambiguous_labels):
             class_indices = np.where(ambiguous_labels == class_label)[0]
             ambiguous_idx_groups.append(class_indices)
-            if self.verbose:
-                print("Ambiguous group {} = {}".format(class_label, class_indices))
+            
+            if self.verbose: print("Ambiguous group {} = {}".format(class_label, class_indices))
 
         result = SimpleNamespace(
             ambiguous_labels=ambiguous_labels, 
@@ -318,22 +371,38 @@ class sonata(object):
         """This function is similar to the `diagnose` function but first groups the coupling matrices 
             before diagnosing ambiguity using the SONATA method.
         """
+        set_seed(self.seed)
         self.clust_labels = h_clustering(data, self.n_cluster)
         
         # step 1: generate mapping data if not exists
-        if not os.path.exists(save_dir): os.makedirs(save_dir)
-        coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
-        os.makedirs(coupling_iters_path, exist_ok=True)
-        
-        if (refresh==True) or not (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
-            np.seterr(under='ignore')
+        if save_dir:
+            if not os.path.exists(save_dir): os.makedirs(save_dir)
+            coupling_iters_path = os.path.join(save_dir, 'coupling_iters')  
+            os.makedirs(coupling_iters_path, exist_ok=True)
+
+        if (refresh==False) and (os.path.exists(os.path.join(coupling_iters_path, f"coupling_iter{self.repeat-1}.txt"))):
+            assert save_dir is not None, "Please provide a save_dir to load the coupling matrices."
+            coupling_list = []
             for iter in range(self.repeat):
-                self.noise_alignment_scot(data, save_url = os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
-        
+                coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))
+                coupling_list.append(coupling)
+                plt_heatmap(np.log(coupling), title=f"coupling_iter{iter}", save_url=os.path.join(coupling_iters_path, f"logcoupling_iter{iter}.png"))
+        else:
+            np.seterr(under='ignore')
+            coupling_list = []
+            for iter in tqdm(range(self.repeat)):
+                if self.verbose: print("---------------OT Alignment Iter={}--------------".format(iter))
+                
+                coupling = self.noise_alignment_ot(data)
+                coupling_list.append(coupling)  
+                
+                if save_dir:
+                    np.savetxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"), coupling)
+                                       
         # step2: group coupling matrices       
-        coupling_clusters = self.group_couplings(self.repeat, data.shape[0], coupling_iters_path)
+        coupling_clusters = self.group_couplings(coupling_list)
         # find the diagonal cluster
-        best_cluster = self.search_best_diagonal(coupling_clusters, data, save_dir)
+        best_cluster = self.search_best_diagonal(coupling_clusters, data, coupling_list)
         
         group_diagnose_result = []
         for cluster, repeats in coupling_clusters.items():
@@ -343,7 +412,7 @@ class sonata(object):
                 repeats_total = list(repeats) + list(coupling_clusters[best_cluster])
                 
             # denoising coupling matrices for each group
-            mat_dict = self.denoise_coupling(data, load_path=save_dir, repeat=repeats_total)
+            mat_dict = self.denoise_coupling(data, coupling_list, repeat=repeats_total)
             outlier_pairs = self.get_outlier(mat_dict)
             diagnose_result = self.find_ambiguous_groups(data, outlier_pairs)      
             
@@ -351,28 +420,22 @@ class sonata(object):
                     
         return group_diagnose_result
  
-    def group_couplings(self, repeat, N, coupling_iters_path, k_clusters=0):
-        coupling_iters = np.empty(shape=(repeat, N*N))
-        for iter in range(repeat):
-            print("---------------Coupling Denoising Iter={}--------------".format(iter))
-            print("Load_path = {}".format(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt")))
-            coupling = np.loadtxt(os.path.join(coupling_iters_path, f"coupling_iter{iter}.txt"))  
-            coupling_iters[iter, :] = coupling.reshape(-1)
+    def group_couplings(self, coupling_list, k_clusters=0):
+        coupling_iters = np.array([gamma.reshape(-1) for gamma in coupling_list])
             
         ## grouping couplings by clustering
         if k_clusters == 0:
-            ncluster_range=range(2, 10)
-            yscore = silhouette_score_elbow(coupling_iters, ncluster_range)
-            max_k= np.argmax(np.array(yscore)) + 2
-
+            ncluster_range=range(1, 10)
+            yscore = inertias_elbow(coupling_iters, ncluster_range)
+            # choose the best k by 2nd derivative
+            max_k = np.argmax(second_grad(np.array(yscore), 1)) + 2
             clustering = KMeans(n_clusters=max_k).fit(coupling_iters)
-            if self.verbose:
-                print("N clusters found by the algorithm = {}".format(clustering.n_clusters))
+            if self.verbose: print("N clusters found by the algorithm = {}".format(clustering.n_clusters))
+            
         else: 
             clustering = KMeans(n_clusters=k_clusters).fit(coupling_iters)
 
-        if self.verbose:
-            print("Cluster labels = {}".format(clustering.labels_))
+        if self.verbose: print("Cluster labels = {}".format(clustering.labels_))
 
         clust_label_dic = {}
         for label in clustering.labels_:
@@ -380,11 +443,11 @@ class sonata(object):
         
         return clust_label_dic   
 
-    def search_best_diagonal(self, coupling_clusters, data, load_path):
+    def search_best_diagonal(self, coupling_clusters, data, coupling_list):
         best_s = 0
         best_cluster = None
         for cluster, repeats in coupling_clusters.items():
-            mat_dict = self.denoise_coupling(data, load_path=load_path, repeat=repeats)
+            mat_dict = self.denoise_coupling(data, coupling_list, repeat=repeats)
             coupling_mat = mat_dict['coupling_mat']
             
             s = check_diagonal_score(coupling_mat)
@@ -405,7 +468,6 @@ def map_ambiguous_groups(data, ambiguous_labels, ambiguous_idx):
 
     ### evaluate valid group
     valid_perm= list(itertools.permutations(range(len(uniq_groups))))[1:]
-    # print("all perms = {} ".format(valid_perm))
 
     ### calculate the cost matrix
     cost_mat = cdist(np.sort(geo_mat, axis=1), np.sort(geo_mat, axis=1), 'cityblock') / geo_mat.shape[1] 
@@ -414,7 +476,6 @@ def map_ambiguous_groups(data, ambiguous_labels, ambiguous_idx):
     for perms in valid_perm:
         # keep the diagonal for original nodes
         map_mat = np.zeros((N, N))
-        # print("perms: ", perms)
 
         # keep the diagonal for unambiguous nodes
         for node in unambiguous_idx: map_mat[node, node] = 1.0        
